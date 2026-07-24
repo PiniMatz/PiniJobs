@@ -268,6 +268,25 @@ body {
   color: var(--text-muted);
 }
 
+.card-dates {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+}
+
+.card-updated {
+  color: var(--text-muted);
+}
+
+.card-duration {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
 .card-event-indicator {
   position: absolute;
   top: 8px;

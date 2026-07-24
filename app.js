@@ -112,6 +112,26 @@ async function loadData() {
   }
 }
 
+function getProcessMetrics(app) {
+  const startDate = app.applied_at ? new Date(app.applied_at) : new Date(app.created_at || Date.now());
+  const lastUpdate = app.updated_at ? new Date(app.updated_at) : startDate;
+  const now = new Date();
+
+  const isFinished = app.status === 'terminated' || app.status === 'offer' || app.status === 'rejected' || app.status === 'withdrawn';
+  const endDate = isFinished ? lastUpdate : now;
+
+  const diffMs = endDate - startDate;
+  const days = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+
+  const updatedDateStr = lastUpdate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+  return {
+    days,
+    updatedDateStr,
+    isFinished
+  };
+}
+
 // Render Board & Columns
 function renderBoard() {
   const columns = ['saved', 'applied', 'screening', 'interview', 'home_task', 'offer', 'terminated'];
@@ -140,7 +160,6 @@ function renderBoard() {
       card.draggable = true;
       card.dataset.id = app.id;
       
-      // Determine if there is an upcoming event for this job
       const hasUpcomingEvent = upcomingEvents.some(e => e.application_id === app.id);
       
       let sourceBadge = '';
@@ -149,17 +168,22 @@ function renderBoard() {
         sourceBadge = `<span class="card-badge source-${sourceLower}">${app.source}</span>`;
       }
 
+      const metrics = getProcessMetrics(app);
+      const durationText = metrics.isFinished ? `${metrics.days}d total` : `${metrics.days}d active`;
+
       card.innerHTML = `
         ${hasUpcomingEvent ? '<div class="card-event-indicator" title="Upcoming event"></div>' : ''}
         <div class="card-company">${escapeHtml(app.company)}</div>
         <div class="card-role">${escapeHtml(app.role_title)}</div>
         <div class="card-meta">
           ${sourceBadge}
-          <span class="card-days">${getDaysSince(app.applied_at)}</span>
+          <div class="card-dates">
+            <span class="card-updated">${metrics.updatedDateStr}</span>
+            <span class="card-duration">${durationText}</span>
+          </div>
         </div>
       `;
       
-      // Card Events
       card.addEventListener('click', () => showJobDetails(app.id));
       card.addEventListener('dragstart', handleDragStart);
       
@@ -167,7 +191,6 @@ function renderBoard() {
     }
   });
 
-  // Update counts in column headers
   columns.forEach(col => {
     const countBadge = document.querySelector(`.board-column[data-status="${col}"] .column-count`);
     if (countBadge) countBadge.textContent = counts[col];

@@ -222,6 +222,11 @@ export default async function handler(req, res) {
           const sender = (headers.find(h => h.name.toLowerCase() === 'from') || {}).value || '';
           const body = getBody(msgRes.data.payload);
 
+          // Extract exact email timestamp
+          const internalMs = parseInt(msgRes.data.internalDate);
+          const emailIsoDate = !isNaN(internalMs) ? new Date(internalMs).toISOString() : new Date().toISOString();
+          const emailDateStr = emailIsoDate.split('T')[0];
+
           // Classify using Gemini
           const result = await classifyAndMatchEmail(subject, sender, body, shortAppsList);
           console.log(`Email ID ${msgInfo.id} classified as ${result.classification}`, result);
@@ -234,20 +239,21 @@ export default async function handler(req, res) {
             const targetStatus = getStatusFromClassification(result.classification);
             
             if (!appId) {
-              // Create new application
+              // Create new application using email date
               appId = await upsertApplication({
                 company: result.company,
                 role_title: result.role_title,
                 source: result.source || 'Email',
                 status: targetStatus,
-                notes: result.details
+                notes: result.details,
+                applied_at: emailDateStr,
+                updated_at: emailIsoDate
               });
               shortAppsList.push({ id: appId, company: result.company, role_title: result.role_title, status: targetStatus });
             } else {
               // Update status according to bucket rules
               let shouldUpdateStatus = true;
 
-              // confirmation rule: only update to 'applied' if current status is 'saved' or unset
               if (result.classification === 'confirmation') {
                 const currentStatus = matchedApp ? matchedApp.status : 'saved';
                 if (currentStatus !== 'saved' && currentStatus !== 'unset') {
@@ -256,16 +262,18 @@ export default async function handler(req, res) {
               }
 
               if (shouldUpdateStatus) {
-                await updateApplication(appId, { status: targetStatus });
+                await updateApplication(appId, { 
+                  status: targetStatus,
+                  updated_at: emailIsoDate
+                });
                 if (matchedApp) matchedApp.status = targetStatus;
               }
             }
 
-            // Determine event type & event detail
+            // Determine event type & detail
             const eventType = getEventType(result.classification, result.due_at);
             let eventDetail = result.details;
 
-            // Formulate detail string for terminated applications
             if (result.classification === 'terminated') {
               if (result.termination_type === 'withdrawn_by_candidate') {
                 eventDetail = `Withdrawn by candidate: ${result.details}`;
@@ -275,6 +283,7 @@ export default async function handler(req, res) {
             }
 
             await addEvent(appId, {
+              ts: emailIsoDate,
               type: eventType,
               detail: `${eventDetail} (Subject: ${subject})`,
               due_at: result.due_at

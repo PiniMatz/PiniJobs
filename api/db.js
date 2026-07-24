@@ -9,14 +9,11 @@ if (!admin.apps.length) {
   let privateKey = process.env.FIREBASE_PRIVATE_KEY;
 
   if (projectId && clientEmail && privateKey) {
-    // Format private key safely for Vercel env variables
-    // 1. Strip outer quotes if present
     privateKey = privateKey.trim();
     if ((privateKey.startsWith('"') && privateKey.endsWith('"')) || 
         (privateKey.startsWith("'") && privateKey.endsWith("'"))) {
       privateKey = privateKey.substring(1, privateKey.length - 1);
     }
-    // 2. Replace literal \n with real newline characters
     privateKey = privateKey.replace(/\\n/g, '\n');
 
     admin.initializeApp({
@@ -39,7 +36,6 @@ if (!admin.apps.length) {
 
 const firestore = admin.firestore();
 
-// Helper to convert Firestore timestamps or documents
 const mapDoc = (doc) => {
   if (!doc.exists) return null;
   return { id: doc.id, ...doc.data() };
@@ -49,7 +45,6 @@ const mapDoc = (doc) => {
  * APPLICATIONS OPERATIONS
  */
 
-// Get all applications, optionally filtering by status
 export async function getApplications(statusFilter = null) {
   const coll = firestore.collection('applications');
   const snapshot = await coll.get();
@@ -67,13 +62,11 @@ export async function getApplications(statusFilter = null) {
   return list;
 }
 
-// Get single application with its timeline events
 export async function getApplication(id) {
   const doc = await firestore.collection('applications').doc(id).get();
   if (!doc.exists) return null;
   const app = mapDoc(doc);
   
-  // Get events for this app
   const eventsSnapshot = await firestore.collection('events')
     .where('application_id', '==', id)
     .get();
@@ -83,7 +76,6 @@ export async function getApplication(id) {
     events.push(mapDoc(d));
   });
   
-  // Sort events by ts descending
   events.sort((a, b) => new Date(b.ts) - new Date(a.ts));
   
   return { ...app, events };
@@ -101,7 +93,6 @@ export async function upsertApplication(data) {
   const companyLower = company.toLowerCase();
   const roleLower = roleTitle.toLowerCase();
   
-  // Search for existing by lowercase fields
   const appColl = firestore.collection('applications');
   const querySnapshot = await appColl
     .where('company_lower', '==', companyLower)
@@ -112,7 +103,8 @@ export async function upsertApplication(data) {
   let docRef;
   let isNew = true;
   let oldStatus = null;
-  const now = new Date().toISOString();
+  const nowIso = data.updated_at || new Date().toISOString();
+  const appliedDate = data.applied_at || nowIso.split('T')[0];
   
   const payload = {
     company,
@@ -128,27 +120,33 @@ export async function upsertApplication(data) {
     notes: data.notes || '',
     description: data.description || '',
     requirements: data.requirements || '',
-    applied_at: data.applied_at || now.split('T')[0],
-    updated_at: now
+    applied_at: appliedDate,
+    updated_at: nowIso
   };
   
   if (!querySnapshot.empty) {
     const existingDoc = querySnapshot.docs[0];
     docRef = existingDoc.ref;
     isNew = false;
-    oldStatus = existingDoc.data().status;
-    payload.created_at = existingDoc.data().created_at || now;
+    const existingData = existingDoc.data();
+    oldStatus = existingData.status;
+    
+    // Preserve earliest applied_at date
+    if (existingData.applied_at && existingData.applied_at < appliedDate) {
+      payload.applied_at = existingData.applied_at;
+    }
+    payload.created_at = existingData.created_at || nowIso;
   } else {
     docRef = appColl.doc();
-    payload.created_at = now;
+    payload.created_at = nowIso;
   }
   
   await docRef.set(payload, { merge: true });
   const appId = docRef.id;
   
-  // Log status change if status changed or new
   if (isNew || oldStatus !== payload.status) {
     await addEvent(appId, {
+      ts: nowIso,
       type: 'status_change',
       detail: isNew ? `Application created with status: ${payload.status}` : `Status changed from ${oldStatus} to ${payload.status}`
     });
@@ -157,18 +155,17 @@ export async function upsertApplication(data) {
   return appId;
 }
 
-// Update individual fields of an application
 export async function updateApplication(id, updates) {
   const docRef = firestore.collection('applications').doc(id);
   const doc = await docRef.get();
   if (!doc.exists) throw new Error('Application not found');
   
   const oldData = doc.data();
-  const now = new Date().toISOString();
+  const nowIso = updates.updated_at || new Date().toISOString();
   
   const payload = {
     ...updates,
-    updated_at: now
+    updated_at: nowIso
   };
   
   if (updates.company) {
@@ -182,6 +179,7 @@ export async function updateApplication(id, updates) {
   
   if (updates.status && updates.status !== oldData.status) {
     await addEvent(id, {
+      ts: nowIso,
       type: 'status_change',
       detail: `Status changed from ${oldData.status} to ${updates.status}`
     });
@@ -190,7 +188,6 @@ export async function updateApplication(id, updates) {
   return id;
 }
 
-// Delete application and all its events
 export async function deleteApplication(id) {
   const eventsSnapshot = await firestore.collection('events')
     .where('application_id', '==', id)
@@ -212,11 +209,11 @@ export async function deleteApplication(id) {
 
 export async function addEvent(appId, eventData) {
   const coll = firestore.collection('events');
-  const now = new Date().toISOString();
+  const nowIso = eventData.ts || new Date().toISOString();
   
   const payload = {
     application_id: appId,
-    ts: eventData.ts || now,
+    ts: nowIso,
     type: eventData.type,
     detail: eventData.detail || '',
     due_at: eventData.due_at || null
