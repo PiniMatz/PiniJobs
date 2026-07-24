@@ -42,7 +42,7 @@ function getBody(payload) {
   return body;
 }
 
-// Multi-email batch classifier: classifies 10 emails in a single Gemini call for sub-5s performance
+// Multi-email batch classifier: classifies 10 emails per Gemini prompt call
 async function classifyAndMatchEmailBatch(emailsChunk, existingApps) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -66,7 +66,7 @@ ${JSON.stringify(existingApps, null, 2)}
 
 Classification Buckets:
 - 'recruiter_outreach': Cold recruiter message, "we have an opening", LinkedIn InMail forward.
-- 'confirmation': Application received, "thank you for applying", "we received your application", auto-ack from an ATS (Greenhouse/Lever/Workday/etc).
+- 'confirmation': Application received, "thank you for applying", "we received your application", auto-ack from an ATS (Greenhouse/Lever/Workday/Comeet/Teamtailor/etc).
 - 'screening_invite': Recruiter/HR wants a call before technical stage, "quick chat", "phone screen", "intro call with recruiter" (sender is HR/recruiter, not technical/hiring manager).
 - 'interview_invite': Technical/onsite/hiring-manager interview scheduled, calendar invite, "technical interview", "onsite", "meet the team", interview with engineer/hiring manager.
 - 'home_task': Take-home assignment, coding challenge, assessment link, HackerRank/CodeSignal/Karat invite, deadline to submit work.
@@ -80,7 +80,7 @@ Provide the response strictly as a JSON array of objects, one for each email in 
     "email_id": "string (matches input email_id)",
     "classification": "recruiter_outreach" | "confirmation" | "screening_invite" | "interview_invite" | "home_task" | "offer" | "terminated" | "irrelevant",
     "matched_app_id": "string or null",
-    "company": "Company Name (standardized, e.g., 'Sentra', 'Wix')",
+    "company": "Company Name (standardized, e.g., 'Cyera', 'Intelligo', 'Sentra', 'Wix')",
     "role_title": "Role Title (standardized)",
     "source": "e.g. 'LinkedIn', 'Referral', or null",
     "due_at": "ISO-8601 Datetime String for scheduled call/interview or assignment submission deadline if found, otherwise null",
@@ -168,8 +168,8 @@ export default async function handler(req, res) {
     const lastScannedTs = forceReset ? null : state.last_scanned_ts;
     const seenIds = forceReset ? [] : (state.seen_ids || []);
 
-    // High-Recall Multi-Signal Query: searches subject, body, and sender headers
-    let queryStr = '(application OR apply OR applying OR applied OR interview OR recruiter OR job OR update OR offer OR reject OR candidate OR "got it" OR received OR thanks OR interest OR position OR role OR opportunity OR status OR submitted OR scheduling OR scheduled OR invite OR assessment OR challenge OR feedback OR unfortunately OR regret OR "moving forward" OR consideration OR pursuing OR candidacy OR decision OR process OR greenhouse.io OR lever.co OR ashbyhq.com OR myworkday.com OR smartrecruiters.com OR workday.com OR intelligo OR sentra)';
+    // Comprehensive Global ATS & Hiring Signal Query
+    let queryStr = '(application OR apply OR applying OR applied OR interview OR recruiter OR job OR update OR offer OR reject OR candidate OR "got it" OR received OR thanks OR interest OR position OR role OR opportunity OR status OR submitted OR scheduling OR scheduled OR invite OR assessment OR challenge OR feedback OR unfortunately OR regret OR "moving forward" OR consideration OR pursuing OR candidacy OR decision OR process OR "following up" OR "next steps" OR "home assignment" OR "take home" OR greenhouse.io OR lever.co OR ashbyhq.com OR myworkday.com OR smartrecruiters.com OR workday.com OR comeet-notifications.com OR comeet.com OR comeet-mail.com OR teamtailor-mail.com OR teamtailor.com OR breezy.hr OR workablemail.com OR workable.com OR jobvite.com OR bamboohr.com OR pinpointhq.com OR recruitee.com OR personio.com OR hackerrank.com OR codesignal.com OR karat.com OR codility.com OR calendly.com OR intelligo OR sentra OR cyera)';
     
     if (lastScannedTs) {
       const scanDate = new Date(lastScannedTs);
