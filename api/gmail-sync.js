@@ -68,9 +68,9 @@ Existing tracked applications:
 ${JSON.stringify(existingApps, null, 2)}
 
 Classification Rules:
-- 'confirmation': Candidate applied to a job. (Status becomes 'applied').
-- 'interview_invite': Candidate is invited to an interview. (Status becomes 'interview').
-- 'assessment': Candidate received a take-home test or screening task. (Status becomes 'screening').
+- 'confirmation': Candidate applied to a job or received an application confirmation (e.g., "Thanks for applying", "Application received", "We got it"). (Status becomes 'applied').
+- 'interview_invite': Candidate is invited to an interview or call. (Status becomes 'interview').
+- 'assessment': Candidate received a take-home test, assignment, or screening task. (Status becomes 'screening').
 - 'offer': Candidate received a job offer. (Status becomes 'offer').
 - 'rejection': Candidate was rejected. (Status becomes 'rejected').
 - 'recruiter_outreach': A recruiter reached out directly. (Status becomes 'saved').
@@ -114,14 +114,12 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
 
-  // Verify auth header if token is set
   const token = process.env.WEBAPP_JOBS_TOKEN;
   if (token && req.headers.authorization !== `Bearer ${token}`) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
 
-  // Validate critical environment variables
   const missingEnv = [];
   if (!process.env.GOOGLE_CLIENT_ID) missingEnv.push('GOOGLE_CLIENT_ID');
   if (!process.env.GOOGLE_CLIENT_SECRET) missingEnv.push('GOOGLE_CLIENT_SECRET');
@@ -135,18 +133,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. Get Google OAuth tokens
     const tokens = await getGmailTokens();
     if (!tokens || !tokens.refresh_token) {
       res.status(400).json({ error: 'Google OAuth reconnect required. Please click Reconnect Gmail.', reconnect: true });
       return;
     }
 
-    // 2. Initialize Google OAuth2 client
     const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, getRedirectUri(req));
     oauth2Client.setCredentials({ refresh_token: tokens.refresh_token });
 
-    // Validate access token/refresh
     try {
       await oauth2Client.getAccessToken();
     } catch (authErr) {
@@ -172,13 +167,15 @@ export default async function handler(req, res) {
 
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
     
-    // 3. Get scan state
     const state = await getEmailState();
-    const lastScannedTs = state.last_scanned_ts;
-    const seenIds = state.seen_ids || [];
+    // Allow forcing a full re-scan if ?reset=1 query parameter is passed
+    const forceReset = req.query.reset === '1' || req.query.reset === 'true';
+    const lastScannedTs = forceReset ? null : state.last_scanned_ts;
+    const seenIds = forceReset ? [] : (state.seen_ids || []);
 
-    // Search query: get messages from last scanned timestamp or June 1st 2026 fallback
-    let queryStr = '(subject:(application OR interview OR recruiter OR job OR update OR offer OR reject OR candidate) OR "job application" OR "thank you for applying")';
+    // Comprehensive High-Recall Search Query: includes apply/applying/applied/thanks/received + ATS domains
+    let queryStr = '(subject:(application OR apply OR applying OR applied OR interview OR recruiter OR job OR update OR offer OR reject OR candidate OR "got it" OR received OR thanks OR interest OR position OR role OR opportunity OR status OR submitted OR scheduling OR scheduled OR invite OR assessment OR challenge OR feedback) OR from:(greenhouse.io OR lever.co OR ashbyhq.com OR myworkday.com OR smartrecruiters.com OR workday.com))';
+    
     if (lastScannedTs) {
       const scanDate = new Date(lastScannedTs);
       const unixSecs = Math.floor(scanDate.getTime() / 1000);
@@ -188,7 +185,7 @@ export default async function handler(req, res) {
       queryStr += ` after:${juneFirstSecs}`;
     }
 
-    console.log('Searching Gmail with query:', queryStr);
+    console.log('Searching Gmail with expanded query:', queryStr);
     const listRes = await gmail.users.messages.list({
       userId: 'me',
       q: queryStr,
@@ -199,7 +196,6 @@ export default async function handler(req, res) {
     const newMessages = messages.filter(msg => !seenIds.includes(msg.id));
     console.log(`Found ${messages.length} messages, ${newMessages.length} are new.`);
 
-    // Fetch existing apps for fuzzy matching
     const existingApps = await getApplications();
     const shortAppsList = existingApps.map(a => ({ id: a.id, company: a.company, role_title: a.role_title }));
 
