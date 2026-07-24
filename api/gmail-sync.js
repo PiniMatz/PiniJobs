@@ -12,7 +12,12 @@ import {
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/api/auth';
+function getRedirectUri(req) {
+  if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI;
+  const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
+  const proto = req.headers['x-forwarded-proto'] || (host.includes('localhost') ? 'http' : 'https');
+  return `${proto}://${host}/api/auth`;
+}
 
 // Parse plain text or html from Gmail message payload
 function getBody(payload) {
@@ -108,7 +113,7 @@ export default async function handler(req, res) {
     }
 
     // 2. Initialize Google OAuth2 client
-    const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
+    const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, getRedirectUri(req));
     oauth2Client.setCredentials({ refresh_token: tokens.refresh_token });
 
     // Validate access token/refresh
