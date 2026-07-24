@@ -43,7 +43,7 @@ function getBody(payload) {
   return body;
 }
 
-// Resilient Gemini email classifier with exact spec bucket rules
+// Resilient Gemini email classifier
 async function classifyAndMatchEmail(subject, sender, body, existingApps) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -68,7 +68,7 @@ Existing tracked applications:
 ${JSON.stringify(existingApps, null, 2)}
 
 Classification Buckets:
-- 'recruiter_outreach': New lead, cold recruiter message, "we have an opening", LinkedIn InMail forward, no prior application exists.
+- 'recruiter_outreach': Cold recruiter message, "we have an opening", LinkedIn InMail forward.
 - 'confirmation': Application received, "thank you for applying", "we received your application", auto-ack from an ATS (Greenhouse/Lever/Workday/etc).
 - 'screening_invite': Recruiter/HR wants a call before technical stage, "quick chat", "phone screen", "intro call with recruiter" (sender is HR/recruiter, not technical/hiring manager).
 - 'interview_invite': Technical/onsite/hiring-manager interview scheduled, calendar invite, "technical interview", "onsite", "meet the team", interview with engineer/hiring manager.
@@ -98,7 +98,6 @@ Provide the response strictly as a JSON object with this exact structure:
     const result = await model.generateContent(prompt);
     const responseText = result.response.text().trim();
     
-    // Use regex to extract JSON payload safely
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       console.warn("Could not find JSON payload in Gemini response:", responseText);
@@ -199,16 +198,11 @@ export default async function handler(req, res) {
     const newMessages = messages.filter(msg => !seenIds.includes(msg.id));
     console.log(`Found ${messages.length} messages, ${newMessages.length} are new.`);
 
-    const existingApps = await getApplications();
-    const shortAppsList = existingApps.map(a => ({ id: a.id, company: a.company, role_title: a.role_title, status: a.status }));
-
-    const updates = [];
-    const updatedSeenIds = [...seenIds];
-
-    // Process messages in parallel batches of 5
-    const BATCH_SIZE = 5;
-    for (let i = 0; i < newMessages.length; i += BATCH_SIZE) {
-      const batch = newMessages.slice(i, i + BATCH_SIZE);
+    // 1. Fetch full payloads for all new messages
+    const fetchedMessages = [];
+    const FETCH_BATCH = 5;
+    for (let i = 0; i < newMessages.length; i += FETCH_BATCH) {
+      const batch = newMessages.slice(i, i + FETCH_BATCH);
       await Promise.all(batch.map(async (msgInfo) => {
         try {
           const msgRes = await gmail.users.messages.get({
@@ -216,94 +210,133 @@ export default async function handler(req, res) {
             id: msgInfo.id,
             format: 'full'
           });
-
-          const headers = msgRes.data.payload.headers || [];
-          const subject = (headers.find(h => h.name.toLowerCase() === 'subject') || {}).value || '';
-          const sender = (headers.find(h => h.name.toLowerCase() === 'from') || {}).value || '';
-          const body = getBody(msgRes.data.payload);
-
-          // Extract exact email timestamp
-          const internalMs = parseInt(msgRes.data.internalDate);
-          const emailIsoDate = !isNaN(internalMs) ? new Date(internalMs).toISOString() : new Date().toISOString();
-          const emailDateStr = emailIsoDate.split('T')[0];
-
-          // Classify using Gemini
-          const result = await classifyAndMatchEmail(subject, sender, body, shortAppsList);
-          console.log(`Email ID ${msgInfo.id} classified as ${result.classification}`, result);
-
-          if (result.classification !== 'irrelevant') {
-            let appId = result.matched_app_id;
-            const matchedApp = existingApps.find(a => a.id === appId);
-
-            // Determine status action based on bucket rules
-            const targetStatus = getStatusFromClassification(result.classification);
-            
-            if (!appId) {
-              // Create new application using email date
-              appId = await upsertApplication({
-                company: result.company,
-                role_title: result.role_title,
-                source: result.source || 'Email',
-                status: targetStatus,
-                notes: result.details,
-                applied_at: emailDateStr,
-                updated_at: emailIsoDate
-              });
-              shortAppsList.push({ id: appId, company: result.company, role_title: result.role_title, status: targetStatus });
-            } else {
-              // Update status according to bucket rules
-              let shouldUpdateStatus = true;
-
-              if (result.classification === 'confirmation') {
-                const currentStatus = matchedApp ? matchedApp.status : 'saved';
-                if (currentStatus !== 'saved' && currentStatus !== 'unset') {
-                  shouldUpdateStatus = false;
-                }
-              }
-
-              if (shouldUpdateStatus) {
-                await updateApplication(appId, { 
-                  status: targetStatus,
-                  updated_at: emailIsoDate
-                });
-                if (matchedApp) matchedApp.status = targetStatus;
-              }
-            }
-
-            // Determine event type & detail
-            const eventType = getEventType(result.classification, result.due_at);
-            let eventDetail = result.details;
-
-            if (result.classification === 'terminated') {
-              if (result.termination_type === 'withdrawn_by_candidate') {
-                eventDetail = `Withdrawn by candidate: ${result.details}`;
-              } else {
-                eventDetail = `Rejected by company: ${result.details}`;
-              }
-            }
-
-            await addEvent(appId, {
-              ts: emailIsoDate,
-              type: eventType,
-              detail: `${eventDetail} (Subject: ${subject})`,
-              due_at: result.due_at
-            });
-
-            updates.push({
-              id: appId,
-              company: result.company,
-              role_title: result.role_title,
-              classification: result.classification,
-              status: targetStatus,
-              details: eventDetail
-            });
-          }
-
-          updatedSeenIds.push(msgInfo.id);
-        } catch (msgErr) {
-          console.error(`Error processing email message ID ${msgInfo.id}:`, msgErr);
+          const internalMs = parseInt(msgRes.data.internalDate) || Date.now();
+          fetchedMessages.push({
+            info: msgInfo,
+            internalMs,
+            payload: msgRes.data.payload
+          });
+        } catch (fetchErr) {
+          console.error(`Failed to fetch message ID ${msgInfo.id}:`, fetchErr);
         }
       }));
+    }
+
+    // 2. CRITICAL: Sort messages chronologically from OLDEST to NEWEST
+    fetchedMessages.sort((a, b) => a.internalMs - b.internalMs);
+    console.log(`Sorted ${fetchedMessages.length} messages chronologically.`);
+
+    const existingApps = await getApplications();
+    const shortAppsList = existingApps.map(a => ({ id: a.id, company: a.company, role_title: a.role_title, status: a.status }));
+
+    const updates = [];
+    const updatedSeenIds = [...seenIds];
+
+    // 3. Process messages in strict chronological order (Sequential processing)
+    for (const msgItem of fetchedMessages) {
+      try {
+        const headers = msgItem.payload.headers || [];
+        const subject = (headers.find(h => h.name.toLowerCase() === 'subject') || {}).value || '';
+        const sender = (headers.find(h => h.name.toLowerCase() === 'from') || {}).value || '';
+        const body = getBody(msgItem.payload);
+
+        const emailIsoDate = new Date(msgItem.internalMs).toISOString();
+        const emailDateStr = emailIsoDate.split('T')[0];
+
+        // Classify using Gemini
+        const result = await classifyAndMatchEmail(subject, sender, body, shortAppsList);
+        console.log(`Email ID ${msgItem.info.id} (${emailDateStr}) classified as ${result.classification}`, result);
+
+        if (result.classification !== 'irrelevant') {
+          let appId = result.matched_app_id;
+          const matchedApp = existingApps.find(a => a.id === appId);
+          const targetStatus = getStatusFromClassification(result.classification);
+
+          if (!appId) {
+            // Create new application with true email timestamp
+            appId = await upsertApplication({
+              company: result.company,
+              role_title: result.role_title,
+              source: result.source || 'Email',
+              status: targetStatus,
+              notes: result.details,
+              applied_at: emailDateStr,
+              updated_at: emailIsoDate
+            });
+            const newAppObj = { id: appId, company: result.company, role_title: result.role_title, status: targetStatus, updated_at: emailIsoDate, applied_at: emailDateStr };
+            existingApps.push(newAppObj);
+            shortAppsList.push({ id: appId, company: result.company, role_title: result.role_title, status: targetStatus });
+          } else {
+            // LINEAR FORWARD-ONLY STATUS GUARD:
+            // Only update status if:
+            // 1. Current status is NOT 'terminated'
+            // 2. Email timestamp is strictly NEWER than the app's current updated_at date
+            const currentStatus = matchedApp ? matchedApp.status : 'applied';
+            const currentUpdatedAtMs = matchedApp && matchedApp.updated_at ? new Date(matchedApp.updated_at).getTime() : 0;
+
+            let shouldUpdateStatus = true;
+
+            // Rule 1: Never move out of terminated status
+            if (currentStatus === 'terminated') {
+              shouldUpdateStatus = false;
+            }
+
+            // Rule 2: Only update status if email timestamp is newer than current update timestamp
+            if (msgItem.internalMs <= currentUpdatedAtMs) {
+              shouldUpdateStatus = false;
+            }
+
+            if (shouldUpdateStatus) {
+              await updateApplication(appId, { 
+                status: targetStatus,
+                updated_at: emailIsoDate
+              });
+              if (matchedApp) {
+                matchedApp.status = targetStatus;
+                matchedApp.updated_at = emailIsoDate;
+              }
+            }
+
+            // Preserve earliest submission date
+            if (matchedApp && (!matchedApp.applied_at || emailDateStr < matchedApp.applied_at)) {
+              await updateApplication(appId, { applied_at: emailDateStr });
+              matchedApp.applied_at = emailDateStr;
+            }
+          }
+
+          // Determine event type & detail
+          const eventType = getEventType(result.classification, result.due_at);
+          let eventDetail = result.details;
+
+          if (result.classification === 'terminated') {
+            if (result.termination_type === 'withdrawn_by_candidate') {
+              eventDetail = `Withdrawn by candidate: ${result.details}`;
+            } else {
+              eventDetail = `Rejected by company: ${result.details}`;
+            }
+          }
+
+          await addEvent(appId, {
+            ts: emailIsoDate,
+            type: eventType,
+            detail: `${eventDetail} (Subject: ${subject})`,
+            due_at: result.due_at
+          });
+
+          updates.push({
+            id: appId,
+            company: result.company,
+            role_title: result.role_title,
+            classification: result.classification,
+            status: targetStatus,
+            details: eventDetail
+          });
+        }
+
+        updatedSeenIds.push(msgItem.info.id);
+      } catch (msgErr) {
+        console.error(`Error processing message ID ${msgItem.info.id}:`, msgErr);
+      }
     }
 
     if (updatedSeenIds.length > 1000) {
@@ -322,7 +355,7 @@ export default async function handler(req, res) {
     res.status(200).json({
       status: 'success',
       scanned_at: nowStr,
-      processed: newMessages.length,
+      processed: fetchedMessages.length,
       updates
     });
 
@@ -332,10 +365,9 @@ export default async function handler(req, res) {
   }
 }
 
-// Maps classification to status bucket
 function getStatusFromClassification(cls) {
   switch (cls) {
-    case 'recruiter_outreach': return 'saved';
+    case 'recruiter_outreach': return 'applied';
     case 'confirmation': return 'applied';
     case 'screening_invite': return 'screening';
     case 'interview_invite': return 'interview';
@@ -346,7 +378,6 @@ function getStatusFromClassification(cls) {
   }
 }
 
-// Maps classification to timeline event type
 function getEventType(cls, dueAt) {
   switch (cls) {
     case 'recruiter_outreach': return 'email';

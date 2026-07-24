@@ -35,6 +35,7 @@ if (!admin.apps.length) {
 }
 
 const firestore = admin.firestore();
+export { firestore as db };
 
 const mapDoc = (doc) => {
   if (!doc.exists) return null;

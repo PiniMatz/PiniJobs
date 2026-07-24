@@ -134,7 +134,7 @@ function getProcessMetrics(app) {
 
 // Render Board & Columns
 function renderBoard() {
-  const columns = ['saved', 'applied', 'screening', 'interview', 'home_task', 'offer', 'terminated'];
+  const columns = ['applied', 'screening', 'interview', 'home_task', 'offer', 'terminated'];
   
   // Clear all columns
   columns.forEach(col => {
@@ -143,12 +143,14 @@ function renderBoard() {
   });
 
   // Keep track of counts
-  const counts = { saved: 0, applied: 0, screening: 0, interview: 0, home_task: 0, offer: 0, terminated: 0 };
+  const counts = { applied: 0, screening: 0, interview: 0, home_task: 0, offer: 0, terminated: 0 };
 
   applications.forEach(app => {
     let colId = app.status;
     if (colId === 'rejected' || colId === 'withdrawn') {
       colId = 'terminated';
+    } else if (colId === 'saved') {
+      colId = 'applied';
     }
 
     const container = document.getElementById(`col-${colId}`);
