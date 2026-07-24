@@ -182,17 +182,27 @@ export default async function handler(req, res) {
     }
 
     console.log('Searching Gmail with query:', queryStr);
-    const listRes = await gmail.users.messages.list({
-      userId: 'me',
-      q: queryStr,
-      maxResults: 100
-    });
 
-    const messages = listRes.data.messages || [];
-    const newMessages = messages.filter(msg => !seenIds.includes(msg.id));
-    console.log(`Found ${messages.length} messages, ${newMessages.length} are new.`);
+    // 1. Fetch ALL pages of messages matching the query
+    let allMessages = [];
+    let pageToken = null;
+    do {
+      const listRes = await gmail.users.messages.list({
+        userId: 'me',
+        q: queryStr,
+        maxResults: 100,
+        pageToken: pageToken
+      });
+      if (listRes.data.messages) {
+        allMessages.push(...listRes.data.messages);
+      }
+      pageToken = listRes.data.nextPageToken;
+    } while (pageToken);
 
-    // 1. Fetch full payloads for all new messages in fast parallel batches of 10
+    const newMessages = allMessages.filter(msg => !seenIds.includes(msg.id));
+    console.log(`Found ${allMessages.length} total messages across all pages, ${newMessages.length} are new.`);
+
+    // 2. Fetch full payloads for new messages & skip generic social profile view digests
     const fetchedMessages = [];
     const FETCH_BATCH = 10;
     for (let i = 0; i < newMessages.length; i += FETCH_BATCH) {
@@ -207,6 +217,12 @@ export default async function handler(req, res) {
           const headers = msgRes.data.payload.headers || [];
           const subject = (headers.find(h => h.name.toLowerCase() === 'subject') || {}).value || '';
           const sender = (headers.find(h => h.name.toLowerCase() === 'from') || {}).value || '';
+
+          // Filter out non-application social digests (e.g. "X people looked at your profile")
+          if (subject.includes('people looked at your profile') || subject.includes('profile views')) {
+            return;
+          }
+
           const body = getBody(msgRes.data.payload);
           const internalMs = parseInt(msgRes.data.internalDate) || Date.now();
           
@@ -223,9 +239,9 @@ export default async function handler(req, res) {
       }));
     }
 
-    // 2. CRITICAL: Sort messages chronologically from OLDEST to NEWEST
+    // 3. CRITICAL: Sort messages chronologically from OLDEST to NEWEST
     fetchedMessages.sort((a, b) => a.internalMs - b.internalMs);
-    console.log(`Sorted ${fetchedMessages.length} messages chronologically.`);
+    console.log(`Sorted ${fetchedMessages.length} application emails chronologically.`);
 
     const existingApps = await getApplications();
     const shortAppsList = existingApps.map(a => ({ id: a.id, company: a.company, role_title: a.role_title, status: a.status }));
@@ -233,7 +249,7 @@ export default async function handler(req, res) {
     const updates = [];
     const updatedSeenIds = [...seenIds];
 
-    // 3. Classify messages in fast AI batches of 10
+    // 4. Classify messages in fast AI batches of 10
     const AI_BATCH_SIZE = 10;
     for (let i = 0; i < fetchedMessages.length; i += AI_BATCH_SIZE) {
       const chunk = fetchedMessages.slice(i, i + AI_BATCH_SIZE);
