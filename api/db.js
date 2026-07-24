@@ -6,14 +6,24 @@ dotenv.config();
 if (!admin.apps.length) {
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+  let privateKey = process.env.FIREBASE_PRIVATE_KEY;
 
   if (projectId && clientEmail && privateKey) {
+    // Format private key safely for Vercel env variables
+    // 1. Strip outer quotes if present
+    privateKey = privateKey.trim();
+    if ((privateKey.startsWith('"') && privateKey.endsWith('"')) || 
+        (privateKey.startsWith("'") && privateKey.endsWith("'"))) {
+      privateKey = privateKey.substring(1, privateKey.length - 1);
+    }
+    // 2. Replace literal \n with real newline characters
+    privateKey = privateKey.replace(/\\n/g, '\n');
+
     admin.initializeApp({
       credential: admin.credential.cert({
         projectId,
         clientEmail,
-        privateKey: privateKey.replace(/\\n/g, '\n'),
+        privateKey,
       }),
     });
   } else {
@@ -127,7 +137,6 @@ export async function upsertApplication(data) {
     docRef = existingDoc.ref;
     isNew = false;
     oldStatus = existingDoc.data().status;
-    // Don't overwrite created_at on update
     payload.created_at = existingDoc.data().created_at || now;
   } else {
     docRef = appColl.doc();
@@ -162,7 +171,6 @@ export async function updateApplication(id, updates) {
     updated_at: now
   };
   
-  // Maintain lowercase helper fields if company or role changes
   if (updates.company) {
     payload.company_lower = updates.company.toLowerCase().trim();
   }
@@ -172,7 +180,6 @@ export async function updateApplication(id, updates) {
   
   await docRef.update(payload);
   
-  // If status changed, record it
   if (updates.status && updates.status !== oldData.status) {
     await addEvent(id, {
       type: 'status_change',
@@ -185,7 +192,6 @@ export async function updateApplication(id, updates) {
 
 // Delete application and all its events
 export async function deleteApplication(id) {
-  // Delete events first
   const eventsSnapshot = await firestore.collection('events')
     .where('application_id', '==', id)
     .get();
@@ -195,7 +201,6 @@ export async function deleteApplication(id) {
     batch.delete(doc.ref);
   });
   
-  // Delete the application
   batch.delete(firestore.collection('applications').doc(id));
   await batch.commit();
   return true;
@@ -205,7 +210,6 @@ export async function deleteApplication(id) {
  * EVENTS OPERATIONS
  */
 
-// Add an event to an application
 export async function addEvent(appId, eventData) {
   const coll = firestore.collection('events');
   const now = new Date().toISOString();
@@ -213,7 +217,7 @@ export async function addEvent(appId, eventData) {
   const payload = {
     application_id: appId,
     ts: eventData.ts || now,
-    type: eventData.type, // note|appointment|reminder|email|learn|status_change
+    type: eventData.type,
     detail: eventData.detail || '',
     due_at: eventData.due_at || null
   };
@@ -222,7 +226,6 @@ export async function addEvent(appId, eventData) {
   return docRef.id;
 }
 
-// Get upcoming events
 export async function getUpcomingEvents() {
   const nowStr = new Date().toISOString();
   const coll = firestore.collection('events');
@@ -236,7 +239,6 @@ export async function getUpcomingEvents() {
     }
   });
   
-  // Sort by due_at ascending
   list.sort((a, b) => new Date(a.due_at) - new Date(b.due_at));
   return list;
 }
