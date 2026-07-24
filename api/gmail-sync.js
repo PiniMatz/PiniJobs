@@ -13,10 +13,13 @@ import {
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 function getRedirectUri(req) {
+  const host = req.headers['x-forwarded-host'] || req.headers.host || '';
+  if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+    const proto = req.headers['x-forwarded-proto'] || 'https';
+    return `${proto}://${host}/api/auth`;
+  }
   if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI;
-  const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
-  const proto = req.headers['x-forwarded-proto'] || (host.includes('localhost') ? 'http' : 'https');
-  return `${proto}://${host}/api/auth`;
+  return 'http://localhost:3000/api/auth';
 }
 
 // Parse plain text or html from Gmail message payload
