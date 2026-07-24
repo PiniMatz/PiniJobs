@@ -159,16 +159,16 @@ export default async function handler(req, res) {
       const unixSecs = Math.floor(scanDate.getTime() / 1000);
       queryStr += ` after:${unixSecs}`;
     } else {
-      // Default to last 7 days if never scanned
-      const sevenDaysAgo = Math.floor((Date.now() - 7 * 24 * 60 * 60 * 1000) / 1000);
-      queryStr += ` after:${sevenDaysAgo}`;
+      // Default to June 1st, 2026 for the initial full run
+      const juneFirstSecs = Math.floor(new Date('2026-06-01T00:00:00Z').getTime() / 1000);
+      queryStr += ` after:${juneFirstSecs}`;
     }
 
     console.log('Searching Gmail with query:', queryStr);
     const listRes = await gmail.users.messages.list({
       userId: 'me',
       q: queryStr,
-      maxResults: 20
+      maxResults: 100
     });
 
     const messages = listRes.data.messages || [];
@@ -182,32 +182,70 @@ export default async function handler(req, res) {
     const updates = [];
     const updatedSeenIds = [...seenIds];
 
-    for (const msgInfo of newMessages) {
-      try {
-        const msgRes = await gmail.users.messages.get({
-          userId: 'me',
-          id: msgInfo.id,
-          format: 'full'
-        });
+    // Process messages in parallel batches of 5 for optimal speed on Vercel
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < newMessages.length; i += BATCH_SIZE) {
+      const batch = newMessages.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(async (msgInfo) => {
+        try {
+          const msgRes = await gmail.users.messages.get({
+            userId: 'me',
+            id: msgInfo.id,
+            format: 'full'
+          });
 
-        const headers = msgRes.data.payload.headers || [];
-        const subject = (headers.find(h => h.name.toLowerCase() === 'subject') || {}).value || '';
-        const sender = (headers.find(h => h.name.toLowerCase() === 'from') || {}).value || '';
-        const body = getBody(msgRes.data.payload);
+          const headers = msgRes.data.payload.headers || [];
+          const subject = (headers.find(h => h.name.toLowerCase() === 'subject') || {}).value || '';
+          const sender = (headers.find(h => h.name.toLowerCase() === 'from') || {}).value || '';
+          const body = getBody(msgRes.data.payload);
 
-        // Classify using Gemini
-        const result = await classifyAndMatchEmail(subject, sender, body, shortAppsList);
-        console.log(`Email ID ${msgInfo.id} classified as ${result.classification}`, result);
+          // Classify using Gemini
+          const result = await classifyAndMatchEmail(subject, sender, body, shortAppsList);
+          console.log(`Email ID ${msgInfo.id} classified as ${result.classification}`, result);
 
-        if (result.classification !== 'irrelevant') {
-          let appId = result.matched_app_id;
-          
-          if (!appId) {
-            // Create a new application
-            appId = await upsertApplication({
+          if (result.classification !== 'irrelevant') {
+            let appId = result.matched_app_id;
+            
+            if (!appId) {
+              // Create a new application
+              appId = await upsertApplication({
+                company: result.company,
+                role_title: result.role_title,
+                source: result.source || 'Email',
+                status: getStatusFromClassification(result.classification),
+                notes: result.details
+              });
+              shortAppsList.push({ id: appId, company: result.company, role_title: result.role_title });
+            } else {
+              // Update status of existing application
+              const targetStatus = getStatusFromClassification(result.classification);
+              await updateApplication(appId, {
+                status: targetStatus
+              });
+            }
+
+            // Add timeline event
+            await addEvent(appId, {
+              type: getEventTypeFromClassification(result.classification),
+              detail: `${result.details} (Subject: ${subject})`,
+              due_at: result.due_at
+            });
+
+            updates.push({
+              id: appId,
               company: result.company,
               role_title: result.role_title,
-              source: result.source || 'Email',
+              classification: result.classification,
+              details: result.details
+            });
+          }
+
+          updatedSeenIds.push(msgInfo.id);
+        } catch (msgErr) {
+          console.error(`Error processing email message ID ${msgInfo.id}:`, msgErr);
+        }
+      }));
+    }
               status: getStatusFromClassification(result.classification),
               notes: result.details
             });
