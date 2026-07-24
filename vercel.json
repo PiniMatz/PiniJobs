@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/gmail-sync",
-      "schedule": "0 */3 * * *"
+      "schedule": "0 9 * * *"
     }
   ]
 }
