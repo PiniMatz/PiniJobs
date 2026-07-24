@@ -168,8 +168,8 @@ export default async function handler(req, res) {
     const lastScannedTs = forceReset ? null : state.last_scanned_ts;
     const seenIds = forceReset ? [] : (state.seen_ids || []);
 
-    // Comprehensive Search Query
-    let queryStr = '(subject:(application OR apply OR applying OR applied OR interview OR recruiter OR job OR update OR offer OR reject OR candidate OR "got it" OR received OR thanks OR interest OR position OR role OR opportunity OR status OR submitted OR scheduling OR scheduled OR invite OR assessment OR challenge OR feedback) OR from:(greenhouse.io OR lever.co OR ashbyhq.com OR myworkday.com OR smartrecruiters.com OR workday.com))';
+    // High-Recall Multi-Signal Query: searches subject, body, and sender headers
+    let queryStr = '(application OR apply OR applying OR applied OR interview OR recruiter OR job OR update OR offer OR reject OR candidate OR "got it" OR received OR thanks OR interest OR position OR role OR opportunity OR status OR submitted OR scheduling OR scheduled OR invite OR assessment OR challenge OR feedback OR unfortunately OR regret OR "moving forward" OR consideration OR pursuing OR candidacy OR decision OR process OR greenhouse.io OR lever.co OR ashbyhq.com OR myworkday.com OR smartrecruiters.com OR workday.com OR intelligo OR sentra)';
     
     if (lastScannedTs) {
       const scanDate = new Date(lastScannedTs);
