@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pini Jobs — Job Application Tracker</title>
+  
+  <!-- Font and Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+
+  <!-- PWA Manifest & Meta -->
+  <meta name="theme-color" content="#0f172a">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%236366f1'%3E%3Cpath d='M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z'/%3E%3C/svg%3E">
+  
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo">
+        <span class="material-symbols-rounded">work</span>
+        <h1>Pini Jobs</h1>
+      </div>
+      
+      <div class="header-actions">
+        <!-- Auth status/reconnect banner (hidden by default) -->
+        <button id="reconnect-btn" class="btn btn-warning hidden">
+          <span class="material-symbols-rounded">sync_problem</span>
+          Reconnect Gmail
+        </button>
+        
+        <button id="sync-btn" class="btn btn-sync">
+          <span class="material-symbols-rounded icon-spin-hover">sync</span>
+          <span id="sync-text">Sync Gmail</span>
+        </button>
+        
+        <button id="add-job-btn" class="btn btn-primary">
+          <span class="material-symbols-rounded">add</span>
+          <span>Add Job</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="app-content">
+      <!-- Kanban Board -->
+      <section class="board-section">
+        <div class="board-grid">
+          <!-- Saved Column -->
+          <div class="board-column" data-status="saved">
+            <div class="column-header">
+              <span class="column-title">Saved</span>
+              <span class="column-count">0</span>
+            </div>
+            <div class="column-cards" id="col-saved"></div>
+          </div>
+
+          <!-- Applied Column -->
+          <div class="board-column" data-status="applied">
+            <div class="column-header">
+              <span class="column-title">Applied</span>
+              <span class="column-count">0</span>
+            </div>
+            <div class="column-cards" id="col-applied"></div>
+          </div>
+
+          <!-- Screening Column -->
+          <div class="board-column" data-status="screening">
+            <div class="column-header">
+              <span class="column-title">Screening</span>
+              <span class="column-count">0</span>
+            </div>
+            <div class="column-cards" id="col-screening"></div>
+          </div>
+
+          <!-- Interview Column -->
+          <div class="board-column" data-status="interview">
+            <div class="column-header">
+              <span class="column-title">Interview</span>
+              <span class="column-count">0</span>
+            </div>
+            <div class="column-cards" id="col-interview"></div>
+          </div>
+
+          <!-- Offer Column -->
+          <div class="board-column" data-status="offer">
+            <div class="column-header">
+              <span class="column-title">Offer</span>
+              <span class="column-count">0</span>
+            </div>
+            <div class="column-cards" id="col-offer"></div>
+          </div>
+
+          <!-- Rejected Column -->
+          <div class="board-column" data-status="rejected">
+            <div class="column-header">
+              <span class="column-title">Rejected</span>
+              <span class="column-count">0</span>
+            </div>
+            <div class="column-cards" id="col-rejected"></div>
+          </div>
+
+          <!-- Withdrawn Column -->
+          <div class="board-column" data-status="withdrawn">
+            <div class="column-header">
+              <span class="column-title">Withdrawn</span>
+              <span class="column-count">0</span>
+            </div>
+            <div class="column-cards" id="col-withdrawn"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Sidebar (Upcoming Events) -->
+      <aside class="sidebar-section">
+        <div class="sidebar-header">
+          <span class="material-symbols-rounded">calendar_today</span>
+          <h2>Upcoming Events</h2>
+        </div>
+        <div class="sidebar-content" id="upcoming-events-list">
+          <!-- Rendered dynamically -->
+          <div class="empty-state">No upcoming events</div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Detail Sheet (Sliding Overlay) -->
+  <div id="detail-sheet" class="sheet">
+    <div class="sheet-overlay" id="sheet-overlay"></div>
+    <div class="sheet-content">
+      <header class="sheet-header">
+        <button class="btn-icon" id="close-sheet-btn">
+          <span class="material-symbols-rounded">close</span>
+        </button>
+        <div class="sheet-header-actions">
+          <button class="btn btn-outline" id="edit-job-btn-sheet">
+            <span class="material-symbols-rounded">edit</span>
+            Edit
+          </button>
+          <button class="btn btn-danger" id="delete-job-btn-sheet">
+            <span class="material-symbols-rounded">delete</span>
+            Delete
+          </button>
+        </div>
+      </header>
+      
+      <div class="sheet-body" id="sheet-body-content">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Add/Edit Application Modal -->
+  <div id="job-modal" class="modal">
+    <div class="modal-overlay" id="modal-overlay"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modal-title">Add Job Application</h2>
+        <button class="btn-icon" id="close-modal-btn">
+          <span class="material-symbols-rounded">close</span>
+        </button>
+      </div>
+      <form id="job-form" class="modal-body">
+        <input type="hidden" id="form-job-id">
+        
+        <div class="form-row">
+          <div class="form-group">
+            <label for="form-company">Company *</label>
+            <input type="text" id="form-company" required placeholder="e.g. Wix">
+          </div>
+          <div class="form-group">
+            <label for="form-role">Role Title *</label>
+            <input type="text" id="form-role" required placeholder="e.g. Staff Engineer">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="form-status">Status</label>
+            <select id="form-status">
+              <option value="saved">Saved</option>
+              <option value="applied">Applied</option>
+              <option value="screening">Screening</option>
+              <option value="interview">Interview</option>
+              <option value="offer">Offer</option>
+              <option value="rejected">Rejected</option>
+              <option value="withdrawn">Withdrawn</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="form-applied-at">Applied At</label>
+            <input type="date" id="form-applied-at">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="form-source">Source</label>
+            <input type="text" id="form-source" placeholder="e.g. LinkedIn, Referral">
+          </div>
+          <div class="form-group">
+            <label for="form-url">Job URL</label>
+            <input type="url" id="form-url" placeholder="https://...">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="form-location">Location</label>
+            <input type="text" id="form-location" placeholder="e.g. Tel Aviv / Hybrid">
+          </div>
+          <div class="form-group">
+            <label for="form-salary">Salary Range</label>
+            <input type="text" id="form-salary" placeholder="e.g. 35k - 40k">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="form-contact">Contact Details</label>
+          <input type="text" id="form-contact" placeholder="Recruiter name, email, or phone">
+        </div>
+
+        <div class="form-group">
+          <label for="form-notes">Quick Notes</label>
+          <textarea id="form-notes" rows="3" placeholder="Key points, conversations..."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="form-description">Description</label>
+          <textarea id="form-description" rows="3" placeholder="Full job description..."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="form-requirements">Requirements</label>
+          <textarea id="form-requirements" rows="3" placeholder="Key qualifications..."></textarea>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="cancel-modal-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="save-modal-btn">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Custom Event Modal -->
+  <div id="event-modal" class="modal">
+    <div class="modal-overlay" id="event-modal-overlay"></div>
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h2>Add Event Log</h2>
+        <button class="btn-icon" id="close-event-modal-btn">
+          <span class="material-symbols-rounded">close</span>
+        </button>
+      </div>
+      <form id="event-form" class="modal-body">
+        <input type="hidden" id="event-job-id">
+        
+        <div class="form-group">
+          <label for="event-type">Event Type</label>
+          <select id="event-type" required>
+            <option value="note">Note</option>
+            <option value="appointment">Appointment (Interview/Meeting)</option>
+            <option value="reminder">Reminder (Task/Deadline)</option>
+            <option value="learn">Learn (Feedback/Review)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="event-detail">Details *</label>
+          <textarea id="event-detail" required rows="3" placeholder="Describe the event..."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="event-due-at">Due Date / Time (Optional)</label>
+          <input type="datetime-local" id="event-due-at">
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="cancel-event-modal-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Add Event</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "crons": [
+    {
+      "path": "/api/gmail-sync",
+      "schedule": "0 */3 * * *"
+    }
+  ]
+}
