@@ -208,7 +208,9 @@ body {
 .job-card.status-applied::before { background: var(--primary); }
 .job-card.status-screening::before { background: var(--info); }
 .job-card.status-interview::before { background: var(--warning); }
+.job-card.status-home_task::before { background: #8b5cf6; } /* Purple/Violet for Home Task */
 .job-card.status-offer::before { background: var(--success); }
+.job-card.status-terminated::before { background: var(--danger); }
 .job-card.status-rejected::before { background: var(--danger); }
 .job-card.status-withdrawn::before { background: var(--muted); }
 

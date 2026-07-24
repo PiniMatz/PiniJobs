@@ -114,7 +114,7 @@ async function loadData() {
 
 // Render Board & Columns
 function renderBoard() {
-  const columns = ['saved', 'applied', 'screening', 'interview', 'offer', 'rejected', 'withdrawn'];
+  const columns = ['saved', 'applied', 'screening', 'interview', 'home_task', 'offer', 'terminated'];
   
   // Clear all columns
   columns.forEach(col => {
@@ -123,16 +123,20 @@ function renderBoard() {
   });
 
   // Keep track of counts
-  const counts = { saved: 0, applied: 0, screening: 0, interview: 0, offer: 0, rejected: 0, withdrawn: 0 };
+  const counts = { saved: 0, applied: 0, screening: 0, interview: 0, home_task: 0, offer: 0, terminated: 0 };
 
   applications.forEach(app => {
-    const colId = app.status;
+    let colId = app.status;
+    if (colId === 'rejected' || colId === 'withdrawn') {
+      colId = 'terminated';
+    }
+
     const container = document.getElementById(`col-${colId}`);
     if (container) {
       counts[colId]++;
       
       const card = document.createElement('div');
-      card.className = `job-card status-${app.status}`;
+      card.className = `job-card status-${colId}`;
       card.draggable = true;
       card.dataset.id = app.id;
       
