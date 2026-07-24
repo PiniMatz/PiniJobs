@@ -178,11 +178,12 @@ export default async function handler(req, res) {
     
     if (lastScannedTs) {
       const scanDate = new Date(lastScannedTs);
-      const unixSecs = Math.floor(scanDate.getTime() / 1000);
-      queryStr += ` after:${unixSecs}`;
+      const year = scanDate.getUTCFullYear();
+      const month = String(scanDate.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(scanDate.getUTCDate()).padStart(2, '0');
+      queryStr += ` after:${year}/${month}/${day}`;
     } else {
-      const juneFirstSecs = Math.floor(new Date('2026-06-01T00:00:00Z').getTime() / 1000);
-      queryStr += ` after:${juneFirstSecs}`;
+      queryStr += ` after:2026/05/31`;
     }
 
     console.log('Searching Gmail with expanded query:', queryStr);
