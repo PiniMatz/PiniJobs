@@ -12,6 +12,7 @@ import {
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+
 function getRedirectUri(req) {
   const host = req.headers['x-forwarded-host'] || req.headers.host || '';
   if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
@@ -42,17 +43,19 @@ function getBody(payload) {
   return body;
 }
 
-// Classify email and fuzzy match with existing apps using Gemini
+// Resilient Gemini email classifier with regex JSON extraction & error fallbacks
 async function classifyAndMatchEmail(subject, sender, body, existingApps) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error('GEMINI_API_KEY environment variable is not configured.');
+    console.warn('GEMINI_API_KEY environment variable is missing.');
+    return { classification: 'irrelevant' };
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
-  const prompt = `You are an AI assistant parsing emails for a job application tracker.
+    const prompt = `You are an AI assistant parsing emails for a job application tracker.
 Analyze the following email and classify/match it.
 Current Year: 2026.
 
@@ -78,7 +81,7 @@ Matching Rules:
 - If it clearly relates to an existing application (even if company names differ slightly, e.g., "Wix.com" vs "Wix"), provide its "matched_app_id".
 - If it is a new job application or doesn't match any existing, set "matched_app_id" to null.
 
-Provide the response strictly as a JSON object with this exact structure (no markdown wrappers, no extra text):
+Provide the response strictly as a JSON object with this exact structure:
 {
   "classification": "confirmation" | "interview_invite" | "assessment" | "offer" | "rejection" | "recruiter_outreach" | "irrelevant",
   "matched_app_id": "string or null",
@@ -89,10 +92,21 @@ Provide the response strictly as a JSON object with this exact structure (no mar
   "details": "A brief 1-2 sentence summary of what this email says."
 }`;
 
-  const result = await model.generateContent(prompt);
-  const responseText = result.response.text().trim();
-  const cleanJson = responseText.replace(/^```json\s*/i, '').replace(/```$/, '').trim();
-  return JSON.parse(cleanJson);
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text().trim();
+    
+    // Use regex to extract JSON payload safely
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.warn("Could not find JSON payload in Gemini response:", responseText);
+      return { classification: 'irrelevant' };
+    }
+
+    return JSON.parse(jsonMatch[0]);
+  } catch (err) {
+    console.error("Gemini classification exception:", err);
+    return { classification: 'irrelevant' };
+  }
 }
 
 export default async function handler(req, res) {
@@ -107,11 +121,24 @@ export default async function handler(req, res) {
     return;
   }
 
+  // Validate critical environment variables
+  const missingEnv = [];
+  if (!process.env.GOOGLE_CLIENT_ID) missingEnv.push('GOOGLE_CLIENT_ID');
+  if (!process.env.GOOGLE_CLIENT_SECRET) missingEnv.push('GOOGLE_CLIENT_SECRET');
+  if (!process.env.GEMINI_API_KEY) missingEnv.push('GEMINI_API_KEY');
+  
+  if (missingEnv.length > 0) {
+    res.status(400).json({ 
+      error: `Missing environment variable(s) in Vercel: ${missingEnv.join(', ')}. Please add them in Vercel Project Settings -> Environment Variables.` 
+    });
+    return;
+  }
+
   try {
     // 1. Get Google OAuth tokens
     const tokens = await getGmailTokens();
     if (!tokens || !tokens.refresh_token) {
-      res.status(400).json({ error: 'Google OAuth reconnect required', reconnect: true });
+      res.status(400).json({ error: 'Google OAuth reconnect required. Please click Reconnect Gmail.', reconnect: true });
       return;
     }
 
@@ -125,7 +152,6 @@ export default async function handler(req, res) {
     } catch (authErr) {
       console.error('Failed to get access token using refresh token:', authErr);
       
-      // Throttle notification on auth failure (health check logic)
       const state = await getEmailState();
       const now = new Date();
       const lastNotified = state.last_notified_ts ? new Date(state.last_notified_ts) : null;
@@ -140,7 +166,7 @@ export default async function handler(req, res) {
         });
       }
 
-      res.status(401).json({ error: 'Google OAuth credentials expired', reconnect: true });
+      res.status(401).json({ error: 'Google OAuth credentials expired. Please click Reconnect Gmail.', reconnect: true });
       return;
     }
 
@@ -151,15 +177,13 @@ export default async function handler(req, res) {
     const lastScannedTs = state.last_scanned_ts;
     const seenIds = state.seen_ids || [];
 
-    // Search query: get messages from last scanned timestamp or last 24h
+    // Search query: get messages from last scanned timestamp or June 1st 2026 fallback
     let queryStr = '(subject:(application OR interview OR recruiter OR job OR update OR offer OR reject OR candidate) OR "job application" OR "thank you for applying")';
     if (lastScannedTs) {
       const scanDate = new Date(lastScannedTs);
-      // Convert to Unix seconds for Gmail 'after' filter
       const unixSecs = Math.floor(scanDate.getTime() / 1000);
       queryStr += ` after:${unixSecs}`;
     } else {
-      // Default to June 1st, 2026 for the initial full run
       const juneFirstSecs = Math.floor(new Date('2026-06-01T00:00:00Z').getTime() / 1000);
       queryStr += ` after:${juneFirstSecs}`;
     }
@@ -182,7 +206,7 @@ export default async function handler(req, res) {
     const updates = [];
     const updatedSeenIds = [...seenIds];
 
-    // Process messages in parallel batches of 5 for optimal speed on Vercel
+    // Process messages in parallel batches of 5
     const BATCH_SIZE = 5;
     for (let i = 0; i < newMessages.length; i += BATCH_SIZE) {
       const batch = newMessages.slice(i, i + BATCH_SIZE);
@@ -207,7 +231,6 @@ export default async function handler(req, res) {
             let appId = result.matched_app_id;
             
             if (!appId) {
-              // Create a new application
               appId = await upsertApplication({
                 company: result.company,
                 role_title: result.role_title,
@@ -217,14 +240,12 @@ export default async function handler(req, res) {
               });
               shortAppsList.push({ id: appId, company: result.company, role_title: result.role_title });
             } else {
-              // Update status of existing application
               const targetStatus = getStatusFromClassification(result.classification);
               await updateApplication(appId, {
                 status: targetStatus
               });
             }
 
-            // Add timeline event
             await addEvent(appId, {
               type: getEventTypeFromClassification(result.classification),
               detail: `${result.details} (Subject: ${subject})`,
@@ -246,52 +267,16 @@ export default async function handler(req, res) {
         }
       }));
     }
-              status: getStatusFromClassification(result.classification),
-              notes: result.details
-            });
-            // Refresh our cached apps list
-            shortAppsList.push({ id: appId, company: result.company, role_title: result.role_title });
-          } else {
-            // Update status of existing application
-            const targetStatus = getStatusFromClassification(result.classification);
-            await updateApplication(appId, {
-              status: targetStatus
-            });
-          }
 
-          // Add timeline event
-          const eventId = await addEvent(appId, {
-            type: getEventTypeFromClassification(result.classification),
-            detail: `${result.details} (Subject: ${subject})`,
-            due_at: result.due_at
-          });
-
-          updates.push({
-            id: appId,
-            company: result.company,
-            role_title: result.role_title,
-            classification: result.classification,
-            details: result.details
-          });
-        }
-
-        updatedSeenIds.push(msgInfo.id);
-      } catch (msgErr) {
-        console.error(`Error processing email message ID ${msgInfo.id}:`, msgErr);
-      }
-    }
-
-    // Keep seen_ids array capped at 1000 items
     if (updatedSeenIds.length > 1000) {
       updatedSeenIds.splice(0, updatedSeenIds.length - 1000);
     }
 
-    // Update email scan state on success
     const nowStr = new Date().toISOString();
     await updateEmailState({
       last_scanned_ts: nowStr,
       seen_ids: updatedSeenIds,
-      last_notified_ts: null, // Clear notification throttle on success
+      last_notified_ts: null,
       status: 'healthy',
       error: null
     });
@@ -309,7 +294,6 @@ export default async function handler(req, res) {
   }
 }
 
-// Helper maps email classification to Application Status
 function getStatusFromClassification(cls) {
   switch (cls) {
     case 'confirmation': return 'applied';
@@ -322,7 +306,6 @@ function getStatusFromClassification(cls) {
   }
 }
 
-// Helper maps email classification to Event Type
 function getEventTypeFromClassification(cls) {
   switch (cls) {
     case 'confirmation': return 'email';
