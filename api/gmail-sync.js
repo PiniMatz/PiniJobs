@@ -42,7 +42,7 @@ function getBody(payload) {
   return body;
 }
 
-// Multi-email batch classifier: classifies 10 emails per Gemini prompt call
+// Multi-email batch classifier with Multilingual (Hebrew & English) support
 async function classifyAndMatchEmailBatch(emailsChunk, existingApps) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -57,6 +57,7 @@ async function classifyAndMatchEmailBatch(emailsChunk, existingApps) {
     const prompt = `You are an AI assistant parsing emails for a job application tracker.
 Analyze the following array of emails and classify each one.
 Current Year: 2026.
+Languages: Emails can be in ENGLISH or HEBREW (עברית).
 
 Emails to analyze:
 ${JSON.stringify(emailsChunk, null, 2)}
@@ -71,8 +72,14 @@ Classification Buckets:
 - 'interview_invite': Technical/onsite/hiring-manager interview scheduled, calendar invite, "technical interview", "onsite", "meet the team", interview with engineer/hiring manager.
 - 'home_task': Take-home assignment, coding challenge, assessment link, HackerRank/CodeSignal/Karat invite, deadline to submit work.
 - 'offer': Job offer letter, verbal offer follow-up, "pleased to offer", comp details, start date proposal.
-- 'terminated': Process ended on either side. Rejection ("decided to move forward with other candidates", "not moving forward") OR candidate withdrawing.
+- 'terminated': Process ended on either side. Rejection in English ("decided to move forward with other candidates", "not moving forward", "after careful consideration") OR Rejection in Hebrew ("זו לא הייתה החלטה קלה", "החלטנו להמשיך עם מועמדים אחרים", "לא צלחה", "לא להתקדם", "לא תואם") OR candidate withdrawing ("bummer it didn't work out", "withdrawing my application").
 - 'irrelevant': Newsletters, marketing, job-board digests without specific application match.
+
+Matching Rules:
+- Compare the email sender and content with the list of existing applications.
+- If it clearly relates to an existing application (even if company names differ slightly, e.g., "Wix.com" vs "Wix"), provide its "matched_app_id".
+- If it is ambiguous (could plausibly match 2+ applications), set "matched_app_id" to null.
+- If it is a new application lead or doesn't match any existing, set "matched_app_id" to null.
 
 Provide the response strictly as a JSON array of objects, one for each email in the input order:
 [
@@ -168,7 +175,6 @@ export default async function handler(req, res) {
     const lastScannedTs = forceReset ? null : state.last_scanned_ts;
     const seenIds = forceReset ? [] : (state.seen_ids || []);
 
-    // Comprehensive Global ATS & Hiring Signal Query
     let queryStr = '(application OR apply OR applying OR applied OR interview OR recruiter OR job OR update OR offer OR reject OR candidate OR "got it" OR received OR thanks OR interest OR position OR role OR opportunity OR status OR submitted OR scheduling OR scheduled OR invite OR assessment OR challenge OR feedback OR unfortunately OR regret OR "moving forward" OR consideration OR pursuing OR candidacy OR decision OR process OR "following up" OR "next steps" OR "home assignment" OR "take home" OR greenhouse.io OR lever.co OR ashbyhq.com OR myworkday.com OR smartrecruiters.com OR workday.com OR comeet-notifications.com OR comeet.com OR comeet-mail.com OR teamtailor-mail.com OR teamtailor.com OR breezy.hr OR workablemail.com OR workable.com OR jobvite.com OR bamboohr.com OR pinpointhq.com OR recruitee.com OR personio.com OR hackerrank.com OR codesignal.com OR karat.com OR codility.com OR calendly.com OR intelligo OR sentra OR cyera)';
     
     if (lastScannedTs) {
@@ -218,7 +224,7 @@ export default async function handler(req, res) {
           const subject = (headers.find(h => h.name.toLowerCase() === 'subject') || {}).value || '';
           const sender = (headers.find(h => h.name.toLowerCase() === 'from') || {}).value || '';
 
-          // Filter out non-application social digests (e.g. "X people looked at your profile")
+          // Filter out non-application social digests
           if (subject.includes('people looked at your profile') || subject.includes('profile views')) {
             return;
           }
@@ -239,7 +245,7 @@ export default async function handler(req, res) {
       }));
     }
 
-    // 3. CRITICAL: Sort messages chronologically from OLDEST to NEWEST
+    // 3. Sort messages chronologically from OLDEST to NEWEST
     fetchedMessages.sort((a, b) => a.internalMs - b.internalMs);
     console.log(`Sorted ${fetchedMessages.length} application emails chronologically.`);
 
@@ -249,7 +255,7 @@ export default async function handler(req, res) {
     const updates = [];
     const updatedSeenIds = [...seenIds];
 
-    // 4. Classify messages in fast AI batches of 10
+    // 4. Classify messages in AI batches of 10
     const AI_BATCH_SIZE = 10;
     for (let i = 0; i < fetchedMessages.length; i += AI_BATCH_SIZE) {
       const chunk = fetchedMessages.slice(i, i + AI_BATCH_SIZE);
@@ -285,10 +291,13 @@ export default async function handler(req, res) {
 
               let shouldUpdateStatus = true;
 
+              // STRICT TERMINATED LOCK:
+              // Once an application reaches 'terminated', NO email (even if newer) can move it back out of 'terminated'!
               if (currentStatus === 'terminated') {
                 shouldUpdateStatus = false;
               }
 
+              // Forward-only rule: Only update status if incoming email timestamp is newer
               if (msgItem.internalMs <= currentUpdatedAtMs) {
                 shouldUpdateStatus = false;
               }
