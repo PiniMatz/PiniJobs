@@ -33,7 +33,7 @@ function getBody(payload) {
         body += Buffer.from(part.body.data, 'base64').toString('utf-8');
       } else if (part.mimeType === 'text/html' && part.body && part.body.data) {
         const html = Buffer.from(part.body.data, 'base64').toString('utf-8');
-        body += html.replace(/<[^>]*>?/gm, ' '); // Strip HTML tags
+        body += html.replace(/<[^>]*>?/gm, ' ');
       } else if (part.parts) {
         body += getBody(part);
       }
@@ -42,74 +42,140 @@ function getBody(payload) {
   return body;
 }
 
-// Multi-email batch classifier with Multilingual (Hebrew & English) support
-async function classifyAndMatchEmailBatch(emailsChunk, existingApps) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.warn('GEMINI_API_KEY environment variable is missing.');
-    return [];
-  }
+// Company Extraction Engine
+function extractCompany(sender, subject, bodySnippet) {
+  const fullText = `${sender} ${subject} ${bodySnippet}`;
+  
+  if (/cyera/i.test(fullText)) return 'Cyera';
+  if (/intelligo/i.test(fullText)) return 'Intelligo';
+  if (/sentra/i.test(fullText)) return 'Sentra';
+  if (/riskified/i.test(fullText)) return 'Riskified';
+  if (/sensi\.ai|sensi/i.test(fullText)) return 'Sensi.AI';
+  if (/dun\s*&\s*bradstreet|d&b/i.test(fullText)) return 'Dun & Bradstreet';
+  if (/fiverr/i.test(fullText)) return 'Fiverr';
+  if (/fetcherr/i.test(fullText)) return 'Fetcherr';
+  if (/zesty/i.test(fullText)) return 'Zesty';
+  if (/amazon/i.test(fullText)) return 'Amazon';
+  if (/phasev/i.test(fullText)) return 'PhaseV';
+  if (/quanthealth/i.test(fullText)) return 'QuantHealth';
+  if (/wix/i.test(fullText)) return 'Wix';
 
-  try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-
-    const prompt = `You are an AI assistant parsing emails for a job application tracker.
-Analyze the following array of emails and classify each one.
-Current Year: 2026.
-Languages: Emails can be in ENGLISH or HEBREW (עברית).
-
-Emails to analyze:
-${JSON.stringify(emailsChunk, null, 2)}
-
-Existing tracked applications:
-${JSON.stringify(existingApps, null, 2)}
-
-Classification Buckets:
-- 'recruiter_outreach': Cold recruiter message, "we have an opening", LinkedIn InMail forward.
-- 'confirmation': Application received, "thank you for applying", "we received your application", auto-ack from an ATS (Greenhouse/Lever/Workday/Comeet/Teamtailor/etc).
-- 'screening_invite': Recruiter/HR wants a call before technical stage, "quick chat", "phone screen", "intro call with recruiter" (sender is HR/recruiter, not technical/hiring manager).
-- 'interview_invite': Technical/onsite/hiring-manager interview scheduled, calendar invite, "technical interview", "onsite", "meet the team", interview with engineer/hiring manager.
-- 'home_task': Take-home assignment, coding challenge, assessment link, HackerRank/CodeSignal/Karat invite, deadline to submit work.
-- 'offer': Job offer letter, verbal offer follow-up, "pleased to offer", comp details, start date proposal.
-- 'terminated': Process ended on either side. Rejection in English ("decided to move forward with other candidates", "not moving forward", "after careful consideration") OR Rejection in Hebrew ("זו לא הייתה החלטה קלה", "החלטנו להמשיך עם מועמדים אחרים", "לא צלחה", "לא להתקדם", "לא תואם") OR candidate withdrawing ("bummer it didn't work out", "withdrawing my application").
-- 'irrelevant': Newsletters, marketing, job-board digests without specific application match.
-
-Matching Rules:
-- Compare the email sender and content with the list of existing applications.
-- If it clearly relates to an existing application (even if company names differ slightly, e.g., "Wix.com" vs "Wix"), provide its "matched_app_id".
-- If it is ambiguous (could plausibly match 2+ applications), set "matched_app_id" to null.
-- If it is a new application lead or doesn't match any existing, set "matched_app_id" to null.
-
-Provide the response strictly as a JSON array of objects, one for each email in the input order:
-[
-  {
-    "email_id": "string (matches input email_id)",
-    "classification": "recruiter_outreach" | "confirmation" | "screening_invite" | "interview_invite" | "home_task" | "offer" | "terminated" | "irrelevant",
-    "matched_app_id": "string or null",
-    "company": "Company Name (standardized, e.g., 'Cyera', 'Intelligo', 'Sentra', 'Wix')",
-    "role_title": "Role Title (standardized)",
-    "source": "e.g. 'LinkedIn', 'Referral', or null",
-    "due_at": "ISO-8601 Datetime String for scheduled call/interview or assignment submission deadline if found, otherwise null",
-    "termination_type": "'rejected_by_company' | 'withdrawn_by_candidate' | null",
-    "details": "A brief 1-2 sentence summary of what this email says."
-  }
-]`;
-
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text().trim();
-    
-    const jsonMatch = responseText.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) {
-      console.warn("Could not find JSON array payload in Gemini response:", responseText);
-      return [];
+  // Extract from sender name e.g. "Idan Gera - Intelligo <...>"
+  const matchName = sender.match(/^"?([^"<]+)"?\s*</);
+  if (matchName) {
+    const namePart = matchName[1].trim();
+    if (namePart.includes('-')) {
+      const parts = namePart.split('-');
+      const possibleCompany = parts[parts.length - 1].trim();
+      if (possibleCompany && !/recruiting|careers|notifications|linkedin|digest|no-reply|noreply|support/i.test(possibleCompany)) {
+        return possibleCompany;
+      }
     }
-
-    return JSON.parse(jsonMatch[0]);
-  } catch (err) {
-    console.error("Gemini batch classification exception:", err);
-    return [];
   }
+
+  // Extract from domain e.g. no-reply@careers.cyera.io
+  const matchDomain = sender.match(/@(?:careers\.|jobs\.|recruiting\.)?([a-z0-9-]+)\./i);
+  if (matchDomain) {
+    const domainName = matchDomain[1].toLowerCase();
+    if (!['gmail', 'google', 'linkedin', 'teamtailor-mail', 'comeet-notifications', 'greenhouse', 'lever', 'ashbyhq', 'workday', 'smartrecruiters', '17track', 'claude'].includes(domainName)) {
+      return domainName.charAt(0).toUpperCase() + domainName.slice(1);
+    }
+  }
+
+  return null;
+}
+
+// Deterministic Multilingual Classification Engine
+function classifyText(subject, bodySnippet) {
+  const text = `${subject} ${bodySnippet}`.toLowerCase();
+
+  // 1. Terminated / Rejection / Withdrawal
+  if (
+    text.includes('decided to move forward with other') ||
+    text.includes('not moving forward') ||
+    text.includes('after careful consideration') ||
+    text.includes('pursue other candidates') ||
+    text.includes('pursuing other candidates') ||
+    text.includes("won't be moving forward") ||
+    text.includes("won't be progressing") ||
+    text.includes("not be moving forward") ||
+    text.includes("bummer it didn't work out") ||
+    text.includes('application status') && text.includes('status update') ||
+    text.includes('החלטה קלה') ||
+    text.includes('להמשיך עם מועמדים אחרים') ||
+    text.includes('לא להתקדם') ||
+    text.includes('לא צלחה') ||
+    text.includes('לא תואם') ||
+    text.includes('בחרנו להתקדם')
+  ) {
+    return { 
+      classification: 'terminated', 
+      termination_type: text.includes("didn't work out") ? 'withdrawn_by_candidate' : 'rejected_by_company',
+      detail: text.includes("didn't work out") ? 'Withdrawn by candidate' : 'Rejected by company' 
+    };
+  }
+
+  // 2. Offer
+  if (text.includes('pleased to offer') || text.includes('job offer') || text.includes('offer letter')) {
+    return { classification: 'offer', detail: 'Job offer received' };
+  }
+
+  // 3. Home Task / Assessment
+  if (
+    text.includes('home assignment') ||
+    text.includes('take home') ||
+    text.includes('coding challenge') ||
+    text.includes('assessment link') ||
+    text.includes('hackerrank') ||
+    text.includes('codesignal') ||
+    text.includes('karat') ||
+    text.includes('codility')
+  ) {
+    return { classification: 'home_task', detail: 'Home assignment / assessment' };
+  }
+
+  // 4. Interview
+  if (
+    text.includes('video interview') ||
+    text.includes('technical interview') ||
+    text.includes('onsite interview') ||
+    text.includes('interview with') ||
+    text.includes('meet the team') ||
+    text.includes('interview scheduled') ||
+    text.includes('zoom interview')
+  ) {
+    return { classification: 'interview', detail: 'Interview scheduled' };
+  }
+
+  // 5. Screening
+  if (
+    text.includes('phone interview') ||
+    text.includes('phone screen') ||
+    text.includes('intro call') ||
+    text.includes('quick chat') ||
+    text.includes('speak to you soon') ||
+    text.includes('when should we chat') ||
+    text.includes('following up') ||
+    text.includes('next steps')
+  ) {
+    return { classification: 'screening', detail: 'Screening / Intro call' };
+  }
+
+  // 6. Application Confirmation / Outreach
+  if (
+    text.includes('received your application') ||
+    text.includes('thanks for applying') ||
+    text.includes('thank you for applying') ||
+    text.includes('application received') ||
+    text.includes('we got it') ||
+    text.includes("you've been recommended") ||
+    text.includes("you've been referred") ||
+    text.includes('welcome to')
+  ) {
+    return { classification: 'applied', detail: 'Application confirmation' };
+  }
+
+  return { classification: 'irrelevant', detail: '' };
 }
 
 export default async function handler(req, res) {
@@ -130,7 +196,7 @@ export default async function handler(req, res) {
   
   if (missingEnv.length > 0) {
     res.status(400).json({ 
-      error: `Missing environment variable(s) in Vercel: ${missingEnv.join(', ')}. Please add them in Vercel Project Settings -> Environment Variables.` 
+      error: `Missing environment variable(s) in Vercel: ${missingEnv.join(', ')}.` 
     });
     return;
   }
@@ -138,7 +204,7 @@ export default async function handler(req, res) {
   try {
     const tokens = await getGmailTokens();
     if (!tokens || !tokens.refresh_token) {
-      res.status(400).json({ error: 'Google OAuth reconnect required. Please click Reconnect Gmail.', reconnect: true });
+      res.status(400).json({ error: 'Google OAuth reconnect required.', reconnect: true });
       return;
     }
 
@@ -148,23 +214,7 @@ export default async function handler(req, res) {
     try {
       await oauth2Client.getAccessToken();
     } catch (authErr) {
-      console.error('Failed to get access token using refresh token:', authErr);
-      
-      const state = await getEmailState();
-      const now = new Date();
-      const lastNotified = state.last_notified_ts ? new Date(state.last_notified_ts) : null;
-      const hoursSinceNotify = lastNotified ? (now - lastNotified) / (1000 * 60 * 60) : 999;
-
-      if (hoursSinceNotify >= 20) {
-        await updateEmailState({
-          ...state,
-          last_notified_ts: now.toISOString(),
-          status: 'broken',
-          error: 'Google OAuth token expired or revoked. Re-authenticate via dashboard.'
-        });
-      }
-
-      res.status(401).json({ error: 'Google OAuth credentials expired. Please click Reconnect Gmail.', reconnect: true });
+      res.status(401).json({ error: 'Google OAuth credentials expired.', reconnect: true });
       return;
     }
 
@@ -187,9 +237,7 @@ export default async function handler(req, res) {
       queryStr += ` after:2026/05/31`;
     }
 
-    console.log('Searching Gmail with query:', queryStr);
-
-    // 1. Fetch ALL pages of messages matching the query
+    // 1. Traverse ALL pages using nextPageToken
     let allMessages = [];
     let pageToken = null;
     do {
@@ -208,9 +256,9 @@ export default async function handler(req, res) {
     const newMessages = allMessages.filter(msg => !seenIds.includes(msg.id));
     console.log(`Found ${allMessages.length} total messages across all pages, ${newMessages.length} are new.`);
 
-    // 2. Fetch full payloads for new messages & skip generic social profile view digests
+    // 2. Fetch full payloads in fast parallel batches of 25
     const fetchedMessages = [];
-    const FETCH_BATCH = 10;
+    const FETCH_BATCH = 25;
     for (let i = 0; i < newMessages.length; i += FETCH_BATCH) {
       const batch = newMessages.slice(i, i + FETCH_BATCH);
       await Promise.all(batch.map(async (msgInfo) => {
@@ -224,20 +272,22 @@ export default async function handler(req, res) {
           const subject = (headers.find(h => h.name.toLowerCase() === 'subject') || {}).value || '';
           const sender = (headers.find(h => h.name.toLowerCase() === 'from') || {}).value || '';
 
-          // Filter out non-application social digests
+          // Filter out generic social digests
           if (subject.includes('people looked at your profile') || subject.includes('profile views')) {
             return;
           }
 
           const body = getBody(msgRes.data.payload);
           const internalMs = parseInt(msgRes.data.internalDate) || Date.now();
-          
+
           fetchedMessages.push({
             email_id: msgInfo.id,
             sender,
             subject,
-            snippet: body.substring(0, 1500),
-            internalMs
+            snippet: body,
+            internalMs,
+            emailIsoDate: new Date(internalMs).toISOString(),
+            emailDateStr: new Date(internalMs).toISOString().split('T')[0]
           });
         } catch (fetchErr) {
           console.error(`Failed to fetch message ID ${msgInfo.id}:`, fetchErr);
@@ -247,110 +297,106 @@ export default async function handler(req, res) {
 
     // 3. Sort messages chronologically from OLDEST to NEWEST
     fetchedMessages.sort((a, b) => a.internalMs - b.internalMs);
-    console.log(`Sorted ${fetchedMessages.length} application emails chronologically.`);
 
     const existingApps = await getApplications();
-    const shortAppsList = existingApps.map(a => ({ id: a.id, company: a.company, role_title: a.role_title, status: a.status }));
-
     const updates = [];
     const updatedSeenIds = [...seenIds];
 
-    // 4. Classify messages in AI batches of 10
-    const AI_BATCH_SIZE = 10;
-    for (let i = 0; i < fetchedMessages.length; i += AI_BATCH_SIZE) {
-      const chunk = fetchedMessages.slice(i, i + AI_BATCH_SIZE);
-      const classifications = await classifyAndMatchEmailBatch(chunk, shortAppsList);
+    const statusOrder = {
+      applied: 1,
+      screening: 2,
+      interview: 3,
+      home_task: 4,
+      offer: 5,
+      terminated: 6
+    };
 
-      for (const msgItem of chunk) {
-        try {
-          const result = classifications.find(c => c.email_id === msgItem.email_id) || { classification: 'irrelevant' };
-          const emailIsoDate = new Date(msgItem.internalMs).toISOString();
-          const emailDateStr = emailIsoDate.split('T')[0];
+    // 4. Run Deterministic State Machine sequentially
+    for (const msgItem of fetchedMessages) {
+      try {
+        const company = extractCompany(msgItem.sender, msgItem.subject, msgItem.snippet);
+        if (!company || ['Email', 'Mail', 'Us', 'Eu', 'Bounce4'].includes(company)) {
+          updatedSeenIds.push(msgItem.email_id);
+          continue;
+        }
 
-          if (result.classification !== 'irrelevant') {
-            let appId = result.matched_app_id;
-            const matchedApp = existingApps.find(a => a.id === appId);
-            const targetStatus = getStatusFromClassification(result.classification);
+        const clsRes = classifyText(msgItem.subject, msgItem.snippet);
+        if (clsRes.classification === 'irrelevant') {
+          updatedSeenIds.push(msgItem.email_id);
+          continue;
+        }
 
-            if (!appId) {
-              appId = await upsertApplication({
-                company: result.company,
-                role_title: result.role_title,
-                source: result.source || 'Email',
-                status: targetStatus,
-                notes: result.details,
-                applied_at: emailDateStr,
-                updated_at: emailIsoDate
-              });
-              const newAppObj = { id: appId, company: result.company, role_title: result.role_title, status: targetStatus, updated_at: emailIsoDate, applied_at: emailDateStr };
-              existingApps.push(newAppObj);
-              shortAppsList.push({ id: appId, company: result.company, role_title: result.role_title, status: targetStatus });
-            } else {
-              const currentStatus = matchedApp ? matchedApp.status : 'applied';
-              const currentUpdatedAtMs = matchedApp && matchedApp.updated_at ? new Date(matchedApp.updated_at).getTime() : 0;
+        const matchedApp = existingApps.find(a => a.company_lower === company.toLowerCase());
+        let appId;
 
-              let shouldUpdateStatus = true;
+        if (!matchedApp) {
+          appId = await upsertApplication({
+            company: company,
+            role_title: 'Senior Product Manager',
+            source: 'Email',
+            status: clsRes.classification,
+            notes: `${clsRes.detail}: ${msgItem.subject}`,
+            applied_at: msgItem.emailDateStr,
+            updated_at: msgItem.emailIsoDate
+          });
+          const newAppObj = { id: appId, company, company_lower: company.toLowerCase(), status: clsRes.classification, updated_at: msgItem.emailIsoDate, applied_at: msgItem.emailDateStr };
+          existingApps.push(newAppObj);
+        } else {
+          appId = matchedApp.id;
+          const currentStatus = matchedApp.status || 'applied';
+          const currentUpdatedAtMs = matchedApp.updated_at ? new Date(matchedApp.updated_at).getTime() : 0;
+          
+          const currentRank = statusOrder[currentStatus] || 1;
+          const targetRank = statusOrder[clsRes.classification] || 1;
 
-              // STRICT TERMINATED LOCK:
-              // Once an application reaches 'terminated', NO email (even if newer) can move it back out of 'terminated'!
-              if (currentStatus === 'terminated') {
-                shouldUpdateStatus = false;
-              }
+          let shouldUpdateStatus = true;
 
-              // Forward-only rule: Only update status if incoming email timestamp is newer
-              if (msgItem.internalMs <= currentUpdatedAtMs) {
-                shouldUpdateStatus = false;
-              }
-
-              if (shouldUpdateStatus) {
-                await updateApplication(appId, { 
-                  status: targetStatus,
-                  updated_at: emailIsoDate
-                });
-                if (matchedApp) {
-                  matchedApp.status = targetStatus;
-                  matchedApp.updated_at = emailIsoDate;
-                }
-              }
-
-              if (matchedApp && (!matchedApp.applied_at || emailDateStr < matchedApp.applied_at)) {
-                await updateApplication(appId, { applied_at: emailDateStr });
-                matchedApp.applied_at = emailDateStr;
-              }
-            }
-
-            const eventType = getEventType(result.classification, result.due_at);
-            let eventDetail = result.details;
-
-            if (result.classification === 'terminated') {
-              if (result.termination_type === 'withdrawn_by_candidate') {
-                eventDetail = `Withdrawn by candidate: ${result.details}`;
-              } else {
-                eventDetail = `Rejected by company: ${result.details}`;
-              }
-            }
-
-            await addEvent(appId, {
-              ts: emailIsoDate,
-              type: eventType,
-              detail: `${eventDetail} (Subject: ${msgItem.subject})`,
-              due_at: result.due_at
-            });
-
-            updates.push({
-              id: appId,
-              company: result.company,
-              role_title: result.role_title,
-              classification: result.classification,
-              status: targetStatus,
-              details: eventDetail
-            });
+          // STRICT TERMINATED LOCK:
+          if (currentStatus === 'terminated') {
+            shouldUpdateStatus = false;
           }
 
-          updatedSeenIds.push(msgItem.email_id);
-        } catch (msgErr) {
-          console.error(`Error processing message ID ${msgItem.email_id}:`, msgErr);
+          // Forward-only progression:
+          if (targetRank < currentRank || msgItem.internalMs <= currentUpdatedAtMs) {
+            shouldUpdateStatus = false;
+          }
+
+          if (shouldUpdateStatus) {
+            await updateApplication(appId, { 
+              status: clsRes.classification,
+              updated_at: msgItem.emailIsoDate
+            });
+            matchedApp.status = clsRes.classification;
+            matchedApp.updated_at = msgItem.emailIsoDate;
+          }
+
+          if (!matchedApp.applied_at || msgItem.emailDateStr < matchedApp.applied_at) {
+            await updateApplication(appId, { applied_at: msgItem.emailDateStr });
+            matchedApp.applied_at = msgItem.emailDateStr;
+          }
         }
+
+        // Always log timeline event
+        const eventType = getEventType(clsRes.classification);
+        let eventDetail = `${clsRes.detail} (Subject: ${msgItem.subject})`;
+
+        await addEvent(appId, {
+          ts: msgItem.emailIsoDate,
+          type: eventType,
+          detail: eventDetail
+        });
+
+        updates.push({
+          id: appId,
+          company: company,
+          classification: clsRes.classification,
+          status: matchedApp ? matchedApp.status : clsRes.classification,
+          details: eventDetail
+        });
+
+        updatedSeenIds.push(msgItem.email_id);
+      } catch (msgErr) {
+        console.error(`Error processing message ID ${msgItem.email_id}:`, msgErr);
       }
     }
 
@@ -380,26 +426,13 @@ export default async function handler(req, res) {
   }
 }
 
-function getStatusFromClassification(cls) {
-  switch (cls) {
-    case 'recruiter_outreach': return 'applied';
-    case 'confirmation': return 'applied';
-    case 'screening_invite': return 'screening';
-    case 'interview_invite': return 'interview';
-    case 'home_task': return 'home_task';
-    case 'offer': return 'offer';
-    case 'terminated': return 'terminated';
-    default: return 'applied';
-  }
-}
-
-function getEventType(cls, dueAt) {
+function getEventType(cls) {
   switch (cls) {
     case 'recruiter_outreach': return 'email';
     case 'confirmation': return 'email';
-    case 'screening_invite': return dueAt ? 'appointment' : 'note';
-    case 'interview_invite': return 'appointment';
-    case 'home_task': return dueAt ? 'reminder' : 'note';
+    case 'screening': return 'appointment';
+    case 'interview': return 'appointment';
+    case 'home_task': return 'reminder';
     case 'offer': return 'email';
     case 'terminated': return 'email';
     default: return 'note';
