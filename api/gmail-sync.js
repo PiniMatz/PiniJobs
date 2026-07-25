@@ -170,7 +170,8 @@ function classifyText(subject, bodySnippet) {
     text.includes('we got it') ||
     text.includes("you've been recommended") ||
     text.includes("you've been referred") ||
-    text.includes('welcome to')
+    text.includes('welcome to our candidate') ||
+    text.includes('welcome to our talent')
   ) {
     return { classification: 'applied', detail: 'Application confirmation' };
   }
