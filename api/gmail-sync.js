@@ -89,6 +89,18 @@ function extractCompany(sender, subject, bodySnippet) {
 function classifyText(subject, bodySnippet) {
   const text = `${subject} ${bodySnippet}`.toLowerCase();
 
+  // 0. Marketing / Hotel / Spa / Travel Exclusions
+  if (
+    text.includes('hotel & spa') ||
+    text.includes('loyalty program') ||
+    text.includes('package offers') ||
+    text.includes('gift vouchers') ||
+    text.includes('gastronomic programs') ||
+    text.includes('room category')
+  ) {
+    return { classification: 'irrelevant', detail: '' };
+  }
+
   // 1. Terminated / Rejection / Withdrawal
   if (
     text.includes('decided to move forward with other') ||
@@ -120,10 +132,10 @@ function classifyText(subject, bodySnippet) {
     return { classification: 'offer', detail: 'Job offer received' };
   }
 
-  // 3. Home Task / Assessment
+  // 3. Home Task / Assessment (Strict context matching)
   if (
     text.includes('home assignment') ||
-    text.includes('take home') ||
+    /\btake-home\b|\btake home assignment\b|\btake home test\b|\btake home task\b|\btake home challenge\b/i.test(text) ||
     text.includes('coding challenge') ||
     text.includes('assessment link') ||
     text.includes('hackerrank') ||
