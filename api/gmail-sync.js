@@ -43,24 +43,20 @@ function getBody(payload) {
 }
 
 // Company Extraction Engine
-function extractCompany(sender, subject, bodySnippet) {
+function extractCompany(sender, subject, bodySnippet, activeCompaniesList = []) {
   const fullText = `${sender} ${subject} ${bodySnippet}`;
   
-  if (/cyera/i.test(fullText)) return 'Cyera';
-  if (/intelligo/i.test(fullText)) return 'Intelligo';
-  if (/sentra/i.test(fullText)) return 'Sentra';
-  if (/riskified/i.test(fullText)) return 'Riskified';
-  if (/sensi\.ai|sensi/i.test(fullText)) return 'Sensi.AI';
-  if (/dun\s*&\s*bradstreet|d&b/i.test(fullText)) return 'Dun & Bradstreet';
-  if (/fiverr/i.test(fullText)) return 'Fiverr';
-  if (/fetcherr/i.test(fullText)) return 'Fetcherr';
-  if (/zesty/i.test(fullText)) return 'Zesty';
-  if (/amazon/i.test(fullText)) return 'Amazon';
-  if (/phasev/i.test(fullText)) return 'PhaseV';
-  if (/quanthealth/i.test(fullText)) return 'QuantHealth';
-  if (/wix/i.test(fullText)) return 'Wix';
+  // 1. Check against active companies from database dynamically
+  for (const activeComp of activeCompaniesList) {
+    if (activeComp && activeComp.length > 1) {
+      const regex = new RegExp(`\\b${activeComp.replace(/[-[\]{}()*+?.:^$|\s]/g, '\\$&')}\\b`, 'i');
+      if (regex.test(fullText)) {
+        return activeComp;
+      }
+    }
+  }
 
-  // Extract from sender name e.g. "Idan Gera - Intelligo <...>"
+  // 2. Extract from sender name e.g. "Idan Gera - Intelligo <...>"
   const matchName = sender.match(/^"?([^"<]+)"?\s*</);
   if (matchName) {
     const namePart = matchName[1].trim();
@@ -73,7 +69,7 @@ function extractCompany(sender, subject, bodySnippet) {
     }
   }
 
-  // Extract from domain e.g. no-reply@careers.cyera.io
+  // 3. Extract from domain e.g. no-reply@careers.cyera.io
   const matchDomain = sender.match(/@(?:careers\.|jobs\.|recruiting\.)?([a-z0-9-]+)\./i);
   if (matchDomain) {
     const domainName = matchDomain[1].toLowerCase();
@@ -233,13 +229,24 @@ export default async function handler(req, res) {
     }
 
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-    
+
+    // DYNAMIC INJECTION: Fetch active (non-terminated) company names from database
+    const existingApps = await getApplications();
+    const activeApps = existingApps.filter(a => a.status !== 'terminated');
+    const activeCompanyNames = [...new Set(activeApps.map(a => a.company ? a.company.trim() : '').filter(Boolean))];
+
+    let dynamicCompanyTokens = '';
+    if (activeCompanyNames.length > 0) {
+      dynamicCompanyTokens = ' OR ' + activeCompanyNames.map(c => `"${c}"`).join(' OR ');
+    }
+
     const state = await getEmailState();
     const forceReset = req.query.reset === '1' || req.query.reset === 'true';
     const lastScannedTs = forceReset ? null : state.last_scanned_ts;
     const seenIds = forceReset ? [] : (state.seen_ids || []);
 
-    let queryStr = '(application OR apply OR applying OR applied OR interview OR recruiter OR job OR update OR offer OR reject OR candidate OR "got it" OR received OR thanks OR interest OR position OR role OR opportunity OR status OR submitted OR scheduling OR scheduled OR invite OR assessment OR challenge OR feedback OR unfortunately OR regret OR "moving forward" OR consideration OR pursuing OR candidacy OR decision OR process OR "following up" OR "next steps" OR "home assignment" OR "take home" OR greenhouse.io OR lever.co OR ashbyhq.com OR myworkday.com OR smartrecruiters.com OR workday.com OR comeet-notifications.com OR comeet.com OR comeet-mail.com OR teamtailor-mail.com OR teamtailor.com OR breezy.hr OR workablemail.com OR workable.com OR jobvite.com OR bamboohr.com OR pinpointhq.com OR recruitee.com OR personio.com OR hackerrank.com OR codesignal.com OR karat.com OR codility.com OR calendly.com OR intelligo OR sentra OR cyera OR riskified.com OR riskified)';
+    // Comprehensive Query with Dynamic Active Company Token Injection
+    let queryStr = `(application OR apply OR applying OR applied OR interview OR recruiter OR job OR update OR offer OR reject OR candidate OR "got it" OR received OR thanks OR interest OR position OR role OR opportunity OR status OR submitted OR scheduling OR scheduled OR invite OR assessment OR challenge OR feedback OR unfortunately OR regret OR "moving forward" OR consideration OR pursuing OR candidacy OR decision OR process OR "following up" OR "next steps" OR "home assignment" OR "take home" OR "decided not to" OR greenhouse.io OR lever.co OR ashbyhq.com OR myworkday.com OR smartrecruiters.com OR workday.com OR comeet-notifications.com OR comeet.com OR comeet-mail.com OR teamtailor-mail.com OR teamtailor.com OR breezy.hr OR workablemail.com OR workable.com OR jobvite.com OR bamboohr.com OR pinpointhq.com OR recruitee.com OR personio.com OR hackerrank.com OR codesignal.com OR karat.com OR codility.com OR calendly.com${dynamicCompanyTokens})`;
     
     if (lastScannedTs) {
       const scanDate = new Date(lastScannedTs);
@@ -250,6 +257,8 @@ export default async function handler(req, res) {
     } else {
       queryStr += ` after:2026/05/31`;
     }
+
+    console.log('Searching Gmail with dynamic query:', queryStr);
 
     // 1. Traverse ALL pages using nextPageToken
     let allMessages = [];
@@ -286,7 +295,6 @@ export default async function handler(req, res) {
           const subject = (headers.find(h => h.name.toLowerCase() === 'subject') || {}).value || '';
           const sender = (headers.find(h => h.name.toLowerCase() === 'from') || {}).value || '';
 
-          // Filter out generic social digests
           if (subject.includes('people looked at your profile') || subject.includes('profile views')) {
             return;
           }
@@ -312,7 +320,6 @@ export default async function handler(req, res) {
     // 3. Sort messages chronologically from OLDEST to NEWEST
     fetchedMessages.sort((a, b) => a.internalMs - b.internalMs);
 
-    const existingApps = await getApplications();
     const updates = [];
     const updatedSeenIds = [...seenIds];
 
@@ -328,7 +335,7 @@ export default async function handler(req, res) {
     // 4. Run Deterministic State Machine sequentially
     for (const msgItem of fetchedMessages) {
       try {
-        const company = extractCompany(msgItem.sender, msgItem.subject, msgItem.snippet);
+        const company = extractCompany(msgItem.sender, msgItem.subject, msgItem.snippet, activeCompanyNames);
         if (!company || ['Email', 'Mail', 'Us', 'Eu', 'Bounce4'].includes(company)) {
           updatedSeenIds.push(msgItem.email_id);
           continue;
@@ -390,7 +397,6 @@ export default async function handler(req, res) {
           }
         }
 
-        // Always log timeline event
         const eventType = getEventType(clsRes.classification);
         let eventDetail = `${clsRes.detail} (Subject: ${msgItem.subject})`;
 
