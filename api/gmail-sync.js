@@ -56,24 +56,35 @@ function extractCompany(sender, subject, bodySnippet, activeCompaniesList = []) 
     }
   }
 
-  // 2. Extract from sender name e.g. "Idan Gera - Intelligo <...>"
+  // 2. Extract from subject patterns e.g. "...@ Hyro" or "...at Hyro" or "Role @ Company"
+  const matchSubjectAt = subject.match(/(?:@|at)\s+([A-Z0-9-][A-Za-z0-9\s.-]+?)(?:\s+|$|!|\.)/);
+  if (matchSubjectAt) {
+    const candidateComp = matchSubjectAt[1].trim();
+    if (candidateComp && candidateComp.length > 1 && !/riskified|sentra|cyera|intelligo|senior|product|manager|engineer|developer|role|position/i.test(candidateComp)) {
+      return candidateComp.charAt(0).toUpperCase() + candidateComp.slice(1);
+    }
+  }
+
+  // 3. Extract from sender name e.g. "Idan Gera - Intelligo <...>" or "Hyro <...>"
   const matchName = sender.match(/^"?([^"<]+)"?\s*</);
   if (matchName) {
     const namePart = matchName[1].trim();
     if (namePart.includes('-')) {
       const parts = namePart.split('-');
       const possibleCompany = parts[parts.length - 1].trim();
-      if (possibleCompany && !/recruiting|careers|notifications|linkedin|digest|no-reply|noreply|support/i.test(possibleCompany)) {
+      if (possibleCompany && !/recruiting|careers|notifications|linkedin|digest|no-reply|noreply|support|join\s*us|joinus|team/i.test(possibleCompany)) {
         return possibleCompany;
       }
+    } else if (namePart && !/recruiting|careers|notifications|linkedin|digest|no-reply|noreply|support|join\s*us|joinus|team/i.test(namePart)) {
+      return namePart.charAt(0).toUpperCase() + namePart.slice(1);
     }
   }
 
-  // 3. Extract from domain e.g. no-reply@careers.cyera.io
-  const matchDomain = sender.match(/@(?:careers\.|jobs\.|recruiting\.)?([a-z0-9-]+)\./i);
+  // 4. Extract from domain, stripping subdomains like joinus., apply., hiring., talent., careers., jobs.
+  const matchDomain = sender.match(/@(?:joinus\.|apply\.|hiring\.|talent\.|careers\.|jobs\.|recruiting\.|workwithus\.|mail\.|email\.|notifications\.)*([a-z0-9-]+)\./i);
   if (matchDomain) {
     const domainName = matchDomain[1].toLowerCase();
-    if (!['gmail', 'google', 'linkedin', 'teamtailor-mail', 'comeet-notifications', 'greenhouse', 'lever', 'ashbyhq', 'workday', 'smartrecruiters', '17track', 'claude'].includes(domainName)) {
+    if (!['gmail', 'google', 'linkedin', 'teamtailor-mail', 'comeet-notifications', 'greenhouse', 'lever', 'ashbyhq', 'workday', 'smartrecruiters', '17track', 'claude', 'joinus'].includes(domainName)) {
       return domainName.charAt(0).toUpperCase() + domainName.slice(1);
     }
   }
