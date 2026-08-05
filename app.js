@@ -234,9 +234,13 @@ function renderPrepDetailPanel(app) {
             <span class="material-symbols-rounded">business</span>
             <span>Core Products & Market Offering</span>
           </div>
-          <div style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5; white-space: pre-line;">
-            ${escapeHtml(prep.company_overview || 'Overview details not available.')}
-          </div>
+          <ul class="prep-bullets">
+            ${(Array.isArray(prep.company_overview) 
+                ? prep.company_overview 
+                : String(prep.company_overview || 'Overview details not available.').split('\n')
+              ).filter(Boolean).map(item => `<li>${escapeHtml(item)}</li>`).join('')
+            }
+          </ul>
         </div>
 
         <!-- Job Description & Must-Have Skills -->
@@ -246,11 +250,14 @@ function renderPrepDetailPanel(app) {
             <span>Job Description & Requirements</span>
           </div>
           <ul class="prep-bullets">
-            ${(prep.job_highlights || []).map(h => `<li>${escapeHtml(h)}</li>`).join('')}
+            ${(Array.isArray(prep.job_highlights)
+                ? prep.job_highlights
+                : String(prep.job_highlights || '').split('\n')
+              ).filter(Boolean).map(h => `<li>${escapeHtml(h)}</li>`).join('')}
           </ul>
           ${(prep.key_tech_tags && prep.key_tech_tags.length > 0) ? `
             <div class="prep-tags-container">
-              ${prep.key_tech_tags.map(t => `<span class="prep-tag-pill">${escapeHtml(t)}</span>`).join('')}
+              ${(Array.isArray(prep.key_tech_tags) ? prep.key_tech_tags : [prep.key_tech_tags]).map(t => `<span class="prep-tag-pill">${escapeHtml(t)}</span>`).join('')}
             </div>
           ` : ''}
         </div>
@@ -273,7 +280,10 @@ function renderPrepDetailPanel(app) {
             <span>Smart Questions for the Recruiter</span>
           </div>
           <ul class="prep-bullets">
-            ${(prep.questions_for_recruiter || []).map(q => `<li>${escapeHtml(q)}</li>`).join('')}
+            ${(Array.isArray(prep.questions_for_recruiter)
+                ? prep.questions_for_recruiter
+                : String(prep.questions_for_recruiter || '').split('\n')
+              ).filter(Boolean).map(q => `<li>${escapeHtml(q)}</li>`).join('')}
           </ul>
         </div>
 
@@ -843,8 +853,11 @@ async function handleDeleteJob() {
 
 // Utility
 function escapeHtml(str) {
-  if (!str) return '';
-  return str
+  if (str === null || str === undefined) return '';
+  if (Array.isArray(str)) {
+    return str.map(item => escapeHtml(item)).join('\n');
+  }
+  return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
