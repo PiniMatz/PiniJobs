@@ -40,9 +40,10 @@ export default async function handler(req, res) {
       return;
     }
 
-    // Return cached prep_summary if present and not force-refreshed
+    // Return cached prep_summary if present, not force-refreshed, AND contains Hebrew translations
     const forceRefresh = req.query.refresh === 'true' || req.query.refresh === '1';
-    if (app.prep_summary && !forceRefresh) {
+    const isBilingual = app.prep_summary && app.prep_summary.elevator_pitch_he;
+    if (app.prep_summary && !forceRefresh && isBilingual) {
       res.status(200).json({ status: 'success', prep_summary: app.prep_summary });
       return;
     }
