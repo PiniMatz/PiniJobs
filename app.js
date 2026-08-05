@@ -2,6 +2,8 @@
 let applications = [];
 let upcomingEvents = [];
 let currentJob = null; // Store currently viewed job in details sheet
+let activeTab = 'board';
+let selectedPrepAppId = null;
 
 // API Helpers
 function getHeaders() {
@@ -49,47 +51,27 @@ async function apiCall(url, options = {}) {
   return response.json();
 }
 
-// Format Helpers
-function getDaysSince(dateString) {
-  if (!dateString) return '';
-  const now = new Date();
-  // Strip time parts for calendar day diff
-  now.setHours(0, 0, 0, 0);
-  const dateVal = new Date(dateString);
-  dateVal.setHours(0, 0, 0, 0);
-  
-  const diffTime = now - dateVal;
-  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-  
-  if (diffDays < 0) return 'Future';
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-  return `${diffDays}d ago`;
-}
+// Tab Switcher
+function switchTab(tabName) {
+  activeTab = tabName;
+  const boardBtn = document.getElementById('tab-btn-board');
+  const prepBtn = document.getElementById('tab-btn-prep');
+  const boardContainer = document.getElementById('board-view-container');
+  const prepContainer = document.getElementById('prep-view-container');
 
-function formatRelativeTime(dueAtString) {
-  if (!dueAtString) return '';
-  const now = new Date();
-  const due = new Date(dueAtString);
-  const diffMs = due - now;
-  const diffMins = Math.round(diffMs / (1000 * 60));
-  const diffHours = Math.round(diffMs / (1000 * 60 * 60));
-  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffMins < 0) return 'Overdue';
-  if (diffMins < 60) return `In ${diffMins}m`;
-  if (diffHours < 24) return `In ${diffHours}h`;
-  if (diffDays === 1) return 'Tomorrow';
-  if (diffDays < 7) return `In ${diffDays}d`;
-  
-  return due.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
-
-function formatDateTimeLocal(isoString) {
-  if (!isoString) return '';
-  const d = new Date(isoString);
-  const pad = (n) => n.toString().padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  if (tabName === 'prep') {
+    boardBtn.classList.remove('active');
+    prepBtn.classList.add('active');
+    boardContainer.classList.add('hidden');
+    prepContainer.classList.remove('hidden');
+    renderPrepTab();
+  } else {
+    prepBtn.classList.remove('active');
+    boardBtn.classList.add('active');
+    prepContainer.classList.add('hidden');
+    boardContainer.classList.remove('hidden');
+    renderBoard();
+  }
 }
 
 // Load Data
@@ -98,7 +80,16 @@ async function loadData() {
     applications = await apiCall('/api/applications');
     upcomingEvents = await apiCall('/api/events?action=upcoming');
     
-    renderBoard();
+    // Update badge count for active prep applications
+    const activeApps = applications.filter(a => a.status !== 'terminated' && a.status !== 'rejected' && a.status !== 'withdrawn');
+    const badgeEl = document.getElementById('prep-badge-count');
+    if (badgeEl) badgeEl.textContent = activeApps.length;
+
+    if (activeTab === 'prep') {
+      renderPrepTab();
+    } else {
+      renderBoard();
+    }
     renderSidebar();
     
     // Refresh open sheet if viewing a job
@@ -109,6 +100,241 @@ async function loadData() {
     }
   } catch (error) {
     console.error('Error loading data:', error);
+  }
+}
+
+// Render Recruiter Screening Prep Tab
+function renderPrepTab() {
+  const activeApps = applications.filter(a => a.status !== 'terminated' && a.status !== 'rejected' && a.status !== 'withdrawn');
+  
+  // Sort active apps by status urgency then updated date
+  const statusRank = { screening: 1, interview: 2, home_task: 3, offer: 4, applied: 5 };
+  activeApps.sort((a, b) => {
+    const rankA = statusRank[a.status] || 99;
+    const rankB = statusRank[b.status] || 99;
+    if (rankA !== rankB) return rankA - rankB;
+    return new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0);
+  });
+
+  const searchInput = document.getElementById('prep-search-input');
+  const searchText = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+  const filteredApps = activeApps.filter(app => {
+    if (!searchText) return true;
+    return (app.company && app.company.toLowerCase().includes(searchText)) ||
+           (app.role_title && app.role_title.toLowerCase().includes(searchText));
+  });
+
+  const companyListEl = document.getElementById('prep-company-list');
+  if (!companyListEl) return;
+
+  if (filteredApps.length === 0) {
+    companyListEl.innerHTML = `<div class="empty-state">No active opportunities match search</div>`;
+    renderPrepDetailPanel(null);
+    return;
+  }
+
+  // Auto-select first active company if current selection is invalid
+  if (!selectedPrepAppId || !filteredApps.some(a => a.id === selectedPrepAppId)) {
+    selectedPrepAppId = filteredApps[0].id;
+  }
+
+  companyListEl.innerHTML = '';
+  filteredApps.forEach(app => {
+    const item = document.createElement('div');
+    item.className = `prep-company-item ${app.id === selectedPrepAppId ? 'active' : ''}`;
+    item.onclick = () => {
+      selectedPrepAppId = app.id;
+      renderPrepTab();
+    };
+
+    const metrics = getProcessMetrics(app);
+
+    item.innerHTML = `
+      <div class="prep-item-top">
+        <span class="prep-item-name">${escapeHtml(app.company)}</span>
+        <span class="prep-status-badge prep-status-${app.status}">${app.status.replace('_', ' ')}</span>
+      </div>
+      <div class="prep-item-role">${escapeHtml(app.role_title || 'Senior Product Manager')}</div>
+      <div class="prep-item-meta">
+        <span>Updated: ${metrics.updatedDateStr}</span>
+        <span>${metrics.days}d active</span>
+      </div>
+    `;
+    companyListEl.appendChild(item);
+  });
+
+  const selectedApp = applications.find(a => a.id === selectedPrepAppId);
+  renderPrepDetailPanel(selectedApp);
+}
+
+// Render Cheat Sheet Detail Panel
+function renderPrepDetailPanel(app) {
+  const panelEl = document.getElementById('prep-detail-panel');
+  if (!panelEl) return;
+
+  if (!app) {
+    panelEl.innerHTML = `
+      <div class="prep-empty-state">
+        <span class="material-symbols-rounded">phone_in_talk</span>
+        <h3>Select an active company on the left to open your Recruiter Screening Cheat Sheet</h3>
+        <p>Active opportunities are automatically synced and enriched with company highlights, job description tags, and recruiter interview pitch strategies.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const prep = app.prep_summary || null;
+  const metrics = getProcessMetrics(app);
+
+  panelEl.innerHTML = `
+    <div class="prep-sheet-header">
+      <div class="prep-title-area">
+        <h2>
+          ${escapeHtml(app.company)}
+          <span class="prep-status-badge prep-status-${app.status}">${app.status.replace('_', ' ')}</span>
+        </h2>
+        <div class="prep-title-sub">${escapeHtml(app.role_title || 'Senior Product Manager')} • Applied ${app.applied_at || 'Recently'} (${metrics.days}d active)</div>
+      </div>
+      <div class="prep-action-area">
+        ${app.url ? `<a href="${escapeHtml(app.url)}" target="_blank" class="btn btn-outline"><span class="material-symbols-rounded">open_in_new</span> Job Link</a>` : ''}
+        <button class="btn btn-primary" onclick="generateCompanyPrep('${app.id}', true)">
+          <span class="material-symbols-rounded icon-spin-hover">auto_awesome</span>
+          <span>${prep ? 'Refresh Cheat Sheet' : 'Generate AI Prep Sheet'}</span>
+        </button>
+      </div>
+    </div>
+
+    ${!prep ? `
+      <div class="prep-card full-width" style="text-align: center; padding: 2.5rem;">
+        <span class="material-symbols-rounded" style="font-size: 3rem; color: var(--primary); margin-bottom: 0.5rem;">psychology</span>
+        <h3 style="font-size: 1.2rem; color: #fff; margin-bottom: 0.5rem;">No Cheat Sheet Generated Yet</h3>
+        <p style="color: var(--text-secondary); max-width: 420px; margin: 0 auto 1.25rem auto;">Click the button below to analyze ${escapeHtml(app.company)} and generate a 30-second cheat sheet for your recruiter call.</p>
+        <button class="btn btn-primary" onclick="generateCompanyPrep('${app.id}', true)">
+          <span class="material-symbols-rounded">auto_awesome</span>
+          <span>Generate AI Screening Cheat Sheet</span>
+        </button>
+      </div>
+    ` : `
+      <div class="prep-grid">
+        <!-- Elevator Pitch Card -->
+        <div class="prep-card full-width">
+          <div class="prep-card-header">
+            <span class="material-symbols-rounded">campaign</span>
+            <span>30-Second Company Elevator Pitch</span>
+          </div>
+          <div class="prep-elevator-pitch">
+            "${escapeHtml(prep.elevator_pitch || 'Company overview not available.')}"
+          </div>
+        </div>
+
+        <!-- Company Overview & Product Offerings -->
+        <div class="prep-card">
+          <div class="prep-card-header">
+            <span class="material-symbols-rounded">business</span>
+            <span>Core Products & Market Offering</span>
+          </div>
+          <div style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5; white-space: pre-line;">
+            ${escapeHtml(prep.company_overview || 'Overview details not available.')}
+          </div>
+        </div>
+
+        <!-- Job Description & Must-Have Skills -->
+        <div class="prep-card">
+          <div class="prep-card-header">
+            <span class="material-symbols-rounded">checklist</span>
+            <span>Job Description & Requirements</span>
+          </div>
+          <ul class="prep-bullets">
+            ${(prep.job_highlights || []).map(h => `<li>${escapeHtml(h)}</li>`).join('')}
+          </ul>
+          ${(prep.key_tech_tags && prep.key_tech_tags.length > 0) ? `
+            <div class="prep-tags-container">
+              ${prep.key_tech_tags.map(t => `<span class="prep-tag-pill">${escapeHtml(t)}</span>`).join('')}
+            </div>
+          ` : ''}
+        </div>
+
+        <!-- "Why This Company?" Pitch -->
+        <div class="prep-card">
+          <div class="prep-card-header">
+            <span class="material-symbols-rounded">record_voice_over</span>
+            <span>Your Pitch: "Why ${escapeHtml(app.company)}?"</span>
+          </div>
+          <div style="font-size: 0.9rem; color: #cbd5e1; line-height: 1.5; font-style: italic;">
+            "${escapeHtml(prep.why_us_pitch || 'Strong alignment with candidate background.')}"
+          </div>
+        </div>
+
+        <!-- Smart Questions to Ask Recruiter -->
+        <div class="prep-card">
+          <div class="prep-card-header">
+            <span class="material-symbols-rounded">help</span>
+            <span>Smart Questions for the Recruiter</span>
+          </div>
+          <ul class="prep-bullets">
+            ${(prep.questions_for_recruiter || []).map(q => `<li>${escapeHtml(q)}</li>`).join('')}
+          </ul>
+        </div>
+
+        <!-- Live Call Notes -->
+        <div class="prep-card full-width">
+          <div class="prep-card-header" style="justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <span class="material-symbols-rounded">edit_note</span>
+              <span>Live Call Notes & Key Info (Salary, Team Size, Timeline)</span>
+            </div>
+            <button class="btn btn-outline" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;" onclick="savePrepCallNotes('${app.id}')">
+              <span class="material-symbols-rounded" style="font-size: 0.9rem;">save</span>
+              <span>Save Notes</span>
+            </button>
+          </div>
+          <textarea id="prep-call-notes-textarea" class="prep-notes-textarea" placeholder="Jot down notes during your phone screen (e.g. Recruiter name, salary expectations, next interview date)...">${escapeHtml(app.notes || '')}</textarea>
+        </div>
+      </div>
+    `}
+  `;
+}
+
+// Generate AI Prep Sheet Handler
+async function generateCompanyPrep(appId, forceRefresh = false) {
+  try {
+    const btn = document.querySelector('#prep-detail-panel button.btn-primary');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="material-symbols-rounded icon-spin-hover">sync</span> Analyzing Company & Job...`;
+    }
+
+    const res = await apiCall(`/api/company-prep?appId=${appId}${forceRefresh ? '&refresh=true' : ''}`);
+    if (res && res.prep_summary) {
+      const targetApp = applications.find(a => a.id === appId);
+      if (targetApp) {
+        targetApp.prep_summary = res.prep_summary;
+      }
+      renderPrepDetailPanel(targetApp);
+    }
+  } catch (err) {
+    alert(`Failed to generate prep sheet: ${err.message}`);
+    renderPrepTab();
+  }
+}
+
+// Save Call Notes Handler
+async function savePrepCallNotes(appId) {
+  const textarea = document.getElementById('prep-call-notes-textarea');
+  if (!textarea) return;
+  const notesText = textarea.value;
+
+  try {
+    await apiCall(`/api/applications?id=${appId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ notes: notesText })
+    });
+    const targetApp = applications.find(a => a.id === appId);
+    if (targetApp) targetApp.notes = notesText;
+    alert('Call notes saved successfully!');
+  } catch (err) {
+    alert(`Failed to save notes: ${err.message}`);
   }
 }
 
@@ -624,6 +850,15 @@ document.addEventListener('DOMContentLoaded', () => {
   // Load Initial Data
   loadData();
   initDragAndDrop();
+
+  // Listeners Setup
+  document.getElementById('tab-btn-board').addEventListener('click', () => switchTab('board'));
+  document.getElementById('tab-btn-prep').addEventListener('click', () => switchTab('prep'));
+
+  const prepSearch = document.getElementById('prep-search-input');
+  if (prepSearch) {
+    prepSearch.addEventListener('input', renderPrepTab);
+  }
 
   // Modal Open Buttons
   document.getElementById('add-job-btn').addEventListener('click', openAddModal);

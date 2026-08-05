@@ -46,78 +46,119 @@
       </div>
     </header>
 
+    <!-- Navigation Tabs -->
+    <nav class="nav-tabs-bar">
+      <button class="nav-tab active" id="tab-btn-board" data-tab="board">
+        <span class="material-symbols-rounded">view_kanban</span>
+        <span>Board View</span>
+      </button>
+      <button class="nav-tab" id="tab-btn-prep" data-tab="prep">
+        <span class="material-symbols-rounded">phone_in_talk</span>
+        <span>Recruiter Call Prep</span>
+        <span class="tab-badge" id="prep-badge-count">0</span>
+      </button>
+    </nav>
+
     <!-- Main Content Area -->
     <main class="app-content">
-      <!-- Kanban Board -->
-      <section class="board-section">
-        <div class="board-grid">
-          <!-- Applied Column -->
-          <div class="board-column" data-status="applied">
-            <div class="column-header">
-              <span class="column-title">Applied</span>
-              <span class="column-count">0</span>
+      <!-- Kanban Board View Container -->
+      <div id="board-view-container" class="tab-content-container">
+        <!-- Kanban Board -->
+        <section class="board-section">
+          <div class="board-grid">
+            <!-- Applied Column -->
+            <div class="board-column" data-status="applied">
+              <div class="column-header">
+                <span class="column-title">Applied</span>
+                <span class="column-count">0</span>
+              </div>
+              <div class="column-cards" id="col-applied"></div>
             </div>
-            <div class="column-cards" id="col-applied"></div>
+
+            <!-- Screening Column -->
+            <div class="board-column" data-status="screening">
+              <div class="column-header">
+                <span class="column-title">Screening</span>
+                <span class="column-count">0</span>
+              </div>
+              <div class="column-cards" id="col-screening"></div>
+            </div>
+
+            <!-- Interview Column -->
+            <div class="board-column" data-status="interview">
+              <div class="column-header">
+                <span class="column-title">Interview</span>
+                <span class="column-count">0</span>
+              </div>
+              <div class="column-cards" id="col-interview"></div>
+            </div>
+
+            <!-- Home Task Column -->
+            <div class="board-column" data-status="home_task">
+              <div class="column-header">
+                <span class="column-title">Home Task</span>
+                <span class="column-count">0</span>
+              </div>
+              <div class="column-cards" id="col-home_task"></div>
+            </div>
+
+            <!-- Offer Column -->
+            <div class="board-column" data-status="offer">
+              <div class="column-header">
+                <span class="column-title">Offer</span>
+                <span class="column-count">0</span>
+              </div>
+              <div class="column-cards" id="col-offer"></div>
+            </div>
+
+            <!-- Terminated Column -->
+            <div class="board-column" data-status="terminated">
+              <div class="column-header">
+                <span class="column-title">Terminated</span>
+                <span class="column-count">0</span>
+              </div>
+              <div class="column-cards" id="col-terminated"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Sidebar (Upcoming Events) -->
+        <aside class="sidebar-section">
+          <div class="sidebar-header">
+            <span class="material-symbols-rounded">calendar_today</span>
+            <h2>Upcoming Events</h2>
+          </div>
+          <div class="sidebar-content" id="upcoming-events-list">
+            <!-- Rendered dynamically -->
+            <div class="empty-state">No upcoming events</div>
+          </div>
+        </aside>
+      </div>
+
+      <!-- Recruiter Screening Prep View Container (Hidden by default) -->
+      <div id="prep-view-container" class="tab-content-container hidden">
+        <div class="prep-master-detail">
+          <!-- Left Column: Active Companies List -->
+          <div class="prep-sidebar">
+            <div class="prep-sidebar-header">
+              <h3>Active Opportunities</h3>
+              <input type="text" id="prep-search-input" placeholder="Search active company..." class="prep-search-input">
+            </div>
+            <div class="prep-company-list" id="prep-company-list">
+              <!-- Rendered dynamically -->
+            </div>
           </div>
 
-          <!-- Screening Column -->
-          <div class="board-column" data-status="screening">
-            <div class="column-header">
-              <span class="column-title">Screening</span>
-              <span class="column-count">0</span>
+          <!-- Right Column: Cheat Sheet Display -->
+          <div class="prep-detail-panel" id="prep-detail-panel">
+            <div class="prep-empty-state">
+              <span class="material-symbols-rounded">phone_in_talk</span>
+              <h3>Select an active company on the left to open your Recruiter Screening Cheat Sheet</h3>
+              <p>Non-terminated opportunities are automatically synced and enriched with company highlights, job description tags, and recruiter interview pitch strategies.</p>
             </div>
-            <div class="column-cards" id="col-screening"></div>
-          </div>
-
-          <!-- Interview Column -->
-          <div class="board-column" data-status="interview">
-            <div class="column-header">
-              <span class="column-title">Interview</span>
-              <span class="column-count">0</span>
-            </div>
-            <div class="column-cards" id="col-interview"></div>
-          </div>
-
-          <!-- Home Task Column -->
-          <div class="board-column" data-status="home_task">
-            <div class="column-header">
-              <span class="column-title">Home Task</span>
-              <span class="column-count">0</span>
-            </div>
-            <div class="column-cards" id="col-home_task"></div>
-          </div>
-
-          <!-- Offer Column -->
-          <div class="board-column" data-status="offer">
-            <div class="column-header">
-              <span class="column-title">Offer</span>
-              <span class="column-count">0</span>
-            </div>
-            <div class="column-cards" id="col-offer"></div>
-          </div>
-
-          <!-- Terminated Column -->
-          <div class="board-column" data-status="terminated">
-            <div class="column-header">
-              <span class="column-title">Terminated</span>
-              <span class="column-count">0</span>
-            </div>
-            <div class="column-cards" id="col-terminated"></div>
           </div>
         </div>
-      </section>
-
-      <!-- Sidebar (Upcoming Events) -->
-      <aside class="sidebar-section">
-        <div class="sidebar-header">
-          <span class="material-symbols-rounded">calendar_today</span>
-          <h2>Upcoming Events</h2>
-        </div>
-        <div class="sidebar-content" id="upcoming-events-list">
-          <!-- Rendered dynamically -->
-          <div class="empty-state">No upcoming events</div>
-        </div>
-      </aside>
+      </div>
     </main>
   </div>
 
