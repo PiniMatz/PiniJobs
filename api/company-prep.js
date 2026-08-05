@@ -1,8 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getApplications, updateApplication, db } from './db.js';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -11,6 +9,14 @@ export default async function handler(req, res) {
   const token = process.env.WEBAPP_JOBS_TOKEN;
   if (token && req.headers.authorization !== `Bearer ${token}`) {
     res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    res.status(500).json({ 
+      error: 'GEMINI_API_KEY is missing in environment variables. Please add GEMINI_API_KEY to Vercel project settings.' 
+    });
     return;
   }
 
@@ -67,6 +73,7 @@ export default async function handler(req, res) {
     }
 
     // Build prompt for Gemini
+    const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const prompt = `
 You are an expert executive career coach helping a candidate prepare for an initial recruiter screening call for the company "${app.company}" for the role "${app.role_title || 'Senior Product Manager'}".
