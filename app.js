@@ -200,7 +200,7 @@ function renderPrepDetailPanel(app) {
         ${app.url ? `<a href="${escapeHtml(app.url)}" target="_blank" class="btn btn-outline"><span class="material-symbols-rounded">open_in_new</span> Job Link</a>` : ''}
         <button class="btn btn-primary" onclick="generateCompanyPrep('${app.id}', true)">
           <span class="material-symbols-rounded icon-spin-hover">auto_awesome</span>
-          <span>${prep ? 'Refresh Cheat Sheet' : 'Generate AI Prep Sheet'}</span>
+          <span>${prep ? 'Refresh AI Cheat Sheet' : 'Generate AI Cheat Sheet'}</span>
         </button>
       </div>
     </div>
@@ -212,7 +212,7 @@ function renderPrepDetailPanel(app) {
         <p style="color: var(--text-secondary); max-width: 420px; margin: 0 auto 1.25rem auto;">Click the button below to analyze ${escapeHtml(app.company)} and generate a 30-second cheat sheet for your recruiter call.</p>
         <button class="btn btn-primary" onclick="generateCompanyPrep('${app.id}', true)">
           <span class="material-symbols-rounded">auto_awesome</span>
-          <span>Generate AI Screening Cheat Sheet</span>
+          <span>Generate AI Cheat Sheet</span>
         </button>
       </div>
     ` : `
