@@ -118,7 +118,15 @@ function classifyText(subject, bodySnippet) {
     text.includes('pursuing other candidates') ||
     text.includes("won't be moving forward") ||
     text.includes("won't be progressing") ||
+    text.includes("won't be continuing") ||
+    text.includes("won't be proceeding") ||
+    text.includes("won't be advancing") ||
     text.includes("not be moving forward") ||
+    text.includes("not be continuing") ||
+    text.includes("not be proceeding") ||
+    text.includes("unable to move forward") ||
+    text.includes("unable to proceed") ||
+    text.includes("unable to advance") ||
     text.includes("bummer it didn't work out") ||
     text.includes('application status') && text.includes('status update') ||
     text.includes('החלטה קלה') ||
