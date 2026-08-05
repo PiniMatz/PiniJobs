@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pini-jobs-v1';
+const CACHE_NAME = 'pini-jobs-v2';
 const ASSETS = [
   '/',
   '/index.html',
@@ -8,6 +8,7 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
+  self.skipWaiting();
   e.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(ASSETS).catch(err => {
@@ -27,7 +28,7 @@ self.addEventListener('activate', (e) => {
           }
         })
       );
-    })
+    }).then(() => self.clients.claim())
   );
 });
 
@@ -37,24 +38,18 @@ self.addEventListener('fetch', (e) => {
     return;
   }
   
+  // Network-First strategy with Cache Fallback for instant updates
   e.respondWith(
-    caches.match(e.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
+    fetch(e.request).then((networkResponse) => {
+      if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+        const responseToCache = networkResponse.clone();
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(e.request, responseToCache);
+        });
       }
-      return fetch(e.request).then((response) => {
-        // Cache valid responses dynamically
-        if (response && response.status === 200 && response.type === 'basic') {
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(e.request, responseToCache);
-          });
-        }
-        return response;
-      }).catch(() => {
-        // Offline fallback if fetch fails
-        return new Response('Offline content unavailable');
-      });
+      return networkResponse;
+    }).catch(() => {
+      return caches.match(e.request);
     })
   );
 });

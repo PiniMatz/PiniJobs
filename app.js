@@ -143,9 +143,12 @@ function renderPrepTab() {
   filteredApps.forEach(app => {
     const item = document.createElement('div');
     item.className = `prep-company-item ${app.id === selectedPrepAppId ? 'active' : ''}`;
-    item.onclick = () => {
+    item.onclick = (e) => {
+      if (e) e.stopPropagation();
       selectedPrepAppId = app.id;
-      renderPrepTab();
+      document.querySelectorAll('.prep-company-item').forEach(el => el.classList.remove('active'));
+      item.classList.add('active');
+      renderPrepDetailPanel(app);
     };
 
     const metrics = getProcessMetrics(app);
