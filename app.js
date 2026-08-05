@@ -312,6 +312,9 @@ async function generateCompanyPrep(appId, forceRefresh = false) {
         targetApp.prep_summary = res.prep_summary;
       }
       renderPrepDetailPanel(targetApp);
+    } else {
+      alert('Failed to generate cheat sheet. Please try again.');
+      renderPrepTab();
     }
   } catch (err) {
     alert(`Failed to generate prep sheet: ${err.message}`);
@@ -337,6 +340,10 @@ async function savePrepCallNotes(appId) {
     alert(`Failed to save notes: ${err.message}`);
   }
 }
+
+// Explicit Window Expose for Inline HTML Onclick Handlers
+window.generateCompanyPrep = generateCompanyPrep;
+window.savePrepCallNotes = savePrepCallNotes;
 
 function getProcessMetrics(app) {
   const startDate = app.applied_at ? new Date(app.applied_at) : new Date(app.created_at || Date.now());
