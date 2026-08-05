@@ -229,6 +229,11 @@ function renderPrepDetailPanel(app) {
           <div class="prep-elevator-pitch">
             "${escapeHtml(prep.elevator_pitch || 'Company overview not available.')}"
           </div>
+          ${prep.elevator_pitch_he ? `
+            <div class="prep-hebrew-block">
+              "${escapeHtml(prep.elevator_pitch_he)}"
+            </div>
+          ` : ''}
         </div>
 
         <!-- Company Overview & Product Offerings -->
@@ -244,6 +249,17 @@ function renderPrepDetailPanel(app) {
               ).filter(Boolean).map(item => `<li>${escapeHtml(item)}</li>`).join('')
             }
           </ul>
+          ${prep.company_overview_he ? `
+            <div class="prep-hebrew-block">
+              <ul class="prep-hebrew-bullets">
+                ${(Array.isArray(prep.company_overview_he)
+                    ? prep.company_overview_he
+                    : String(prep.company_overview_he).split('\n')
+                  ).filter(Boolean).map(item => `<li>${escapeHtml(item)}</li>`).join('')
+                }
+              </ul>
+            </div>
+          ` : ''}
         </div>
 
         <!-- Job Description & Must-Have Skills -->
@@ -258,6 +274,16 @@ function renderPrepDetailPanel(app) {
                 : String(prep.job_highlights || '').split('\n')
               ).filter(Boolean).map(h => `<li>${escapeHtml(h)}</li>`).join('')}
           </ul>
+          ${prep.job_highlights_he ? `
+            <div class="prep-hebrew-block">
+              <ul class="prep-hebrew-bullets">
+                ${(Array.isArray(prep.job_highlights_he)
+                    ? prep.job_highlights_he
+                    : String(prep.job_highlights_he).split('\n')
+                  ).filter(Boolean).map(h => `<li>${escapeHtml(h)}</li>`).join('')}
+              </ul>
+            </div>
+          ` : ''}
           ${(prep.key_tech_tags && prep.key_tech_tags.length > 0) ? `
             <div class="prep-tags-container">
               ${(Array.isArray(prep.key_tech_tags) ? prep.key_tech_tags : [prep.key_tech_tags]).map(t => `<span class="prep-tag-pill">${escapeHtml(t)}</span>`).join('')}
@@ -274,6 +300,11 @@ function renderPrepDetailPanel(app) {
           <div style="font-size: 0.9rem; color: #cbd5e1; line-height: 1.5; font-style: italic;">
             "${escapeHtml(prep.why_us_pitch || 'Strong alignment with candidate background.')}"
           </div>
+          ${prep.why_us_pitch_he ? `
+            <div class="prep-hebrew-block">
+              "${escapeHtml(prep.why_us_pitch_he)}"
+            </div>
+          ` : ''}
         </div>
 
         <!-- Smart Questions to Ask Recruiter -->
@@ -288,6 +319,32 @@ function renderPrepDetailPanel(app) {
                 : String(prep.questions_for_recruiter || '').split('\n')
               ).filter(Boolean).map(q => `<li>${escapeHtml(q)}</li>`).join('')}
           </ul>
+          ${prep.questions_for_recruiter_he ? `
+            <div class="prep-hebrew-block">
+              <ul class="prep-hebrew-bullets">
+                ${(Array.isArray(prep.questions_for_recruiter_he)
+                    ? prep.questions_for_recruiter_he
+                    : String(prep.questions_for_recruiter_he).split('\n')
+                  ).filter(Boolean).map(q => `<li>${escapeHtml(q)}</li>`).join('')}
+              </ul>
+            </div>
+          ` : ''}
+        </div>
+
+        <!-- Useful Links & Company Domain -->
+        <div class="prep-card full-width">
+          <div class="prep-card-header">
+            <span class="material-symbols-rounded">link</span>
+            <span>Useful Links & Company Resources</span>
+          </div>
+          <div class="prep-links-container">
+            ${app.url ? `<a href="${escapeHtml(app.url)}" target="_blank" class="prep-link-pill"><span class="material-symbols-rounded">launch</span> Specific Job Posting</a>` : ''}
+            <a href="https://www.${escapeHtml(app.company.toLowerCase().replace(/[^a-z0-9]/g, ''))}.com" target="_blank" class="prep-link-pill"><span class="material-symbols-rounded">language</span> ${escapeHtml(app.company)} Official Website</a>
+            <a href="https://www.google.com/search?q=${encodeURIComponent(app.company + ' product offering overview')}" target="_blank" class="prep-link-pill"><span class="material-symbols-rounded">search</span> Product Search</a>
+            ${(prep.useful_links || []).filter(l => l && l.url && l.url !== app.url).map(l => `
+              <a href="${escapeHtml(l.url)}" target="_blank" class="prep-link-pill"><span class="material-symbols-rounded">open_in_new</span> ${escapeHtml(l.title || 'Resource Link')}</a>
+            `).join('')}
+          </div>
         </div>
 
         <!-- Live Call Notes -->

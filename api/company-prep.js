@@ -83,23 +83,49 @@ Additional Context:
 - Job URL: ${app.url || 'Not provided'}
 - External Snippet: ${externalContext || 'Not provided'}
 
-Task: Generate a concise, high-impact screening cheat sheet formatted strictly as valid JSON with the following key structure:
+Task: Generate a concise, high-impact screening cheat sheet. Provide content in English and also provide an accurate Hebrew translation for each section right below. Formatted strictly as valid JSON with the following key structure:
 {
-  "elevator_pitch": "2-sentence quick summary of what the company does and why it matters",
-  "company_overview": "3-bullet overview of products, main offering, and target audience",
+  "elevator_pitch": "2-sentence quick summary of what the company does and why it matters in English",
+  "elevator_pitch_he": "Hebrew translation of elevator pitch (תקציר החברה בעברית)",
+  "company_overview": [
+    "Overview point 1 in English",
+    "Overview point 2 in English",
+    "Overview point 3 in English"
+  ],
+  "company_overview_he": [
+    "נקודה 1 בעברית",
+    "נקודה 2 בעברית",
+    "נקודה 3 בעברית"
+  ],
   "job_highlights": [
-    "Key responsibility 1",
-    "Key responsibility 2",
-    "Mandatory requirement / skill 1",
-    "Mandatory requirement / skill 2"
+    "Key responsibility 1 in English",
+    "Key responsibility 2 in English",
+    "Mandatory skill 1 in English",
+    "Mandatory skill 2 in English"
   ],
-  "why_us_pitch": "2-sentence answer for 'Why are you interested in this position & company?' tailored for a Senior Product Manager",
+  "job_highlights_he": [
+    "אחריות עיקרית 1 בעברית",
+    "אחריות עיקרית 2 בעברית",
+    "דרישה/מיומנות 1 בעברית",
+    "דרישה/מיומנות 2 בעברית"
+  ],
+  "why_us_pitch": "2-sentence answer for 'Why are you interested in this position & company?' in English",
+  "why_us_pitch_he": "תרגום עברי למענה על 'למה דווקא החברה הזו'",
   "questions_for_recruiter": [
-    "Smart question 1 about product strategy or team structure",
-    "Smart question 2 about hiring timeline or process",
-    "Smart question 3 about current company priorities"
+    "Smart question 1 in English",
+    "Smart question 2 in English",
+    "Smart question 3 in English"
   ],
-  "key_tech_tags": ["Tag1", "Tag2", "Tag3", "Tag4"]
+  "questions_for_recruiter_he": [
+    "שאלה חכמה 1 למגייס/ת בעברית",
+    "שאלה חכמה 2 למגייס/ת בעברית",
+    "שאלה חכמה 3 למגייס/ת בעברית"
+  ],
+  "key_tech_tags": ["Tag1", "Tag2", "Tag3", "Tag4"],
+  "useful_links": [
+    { "title": "Company Website", "url": "https://www.${app.company.toLowerCase().replace(/[^a-z0-9]/g, '')}.com" },
+    ${app.url ? `{ "title": "Job Posting Link", "url": "${app.url}" }` : ''}
+  ]
 }
 
 IMPORTANT: Respond ONLY with raw valid JSON without markdown wrapping or commentary.

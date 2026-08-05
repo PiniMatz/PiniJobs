@@ -1273,6 +1273,77 @@ select option {
   resize: vertical;
 }
 
+/* Hebrew Translation Block */
+.prep-hebrew-block {
+  margin-top: 0.65rem;
+  padding: 0.6rem 0.85rem;
+  background: rgba(16, 185, 129, 0.08);
+  border-right: 3px solid #10b981;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  direction: rtl;
+  text-align: right;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #a7f3d0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.prep-hebrew-bullets {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0;
+  margin: 0;
+}
+
+.prep-hebrew-bullets li {
+  position: relative;
+  padding-right: 1.25rem;
+  font-size: 0.88rem;
+  color: #a7f3d0;
+  line-height: 1.4;
+}
+
+.prep-hebrew-bullets li::before {
+  content: '•';
+  position: absolute;
+  right: 0.2rem;
+  color: #10b981;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+/* Useful Links & Resources */
+.prep-links-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+
+.prep-link-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all var(--transition-fast);
+}
+
+.prep-link-pill:hover {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: #6366f1;
+  color: #fff;
+  transform: translateY(-1px);
+}
+
 @media (max-width: 900px) {
   .prep-master-detail {
     grid-template-columns: 1fr;
